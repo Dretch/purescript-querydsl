@@ -6,12 +6,17 @@ module QueryDsl (
   Table,
   TypedColumn,
   Column,
+  ColumnName,
   SelectQuery,
   DeleteQuery,
   Expression,
   class ToExpression,
   BinaryOperator,
   UnaryOperator,
+  class ValuesMatchColumns,
+  class ApplyValuesMatchColumns,
+  getColumnValues,
+  getColumnValues',
   toExpression,
   makeTable,
   addColumn,
@@ -27,18 +32,23 @@ module QueryDsl (
   filter,
   createTableSql,
   selectSql,
+  insertSql,
   deleteSql,
   expressionSql) where
 
 import Data.Array as Array
-import Data.List (List(..), nub, singleton, snoc)
+import Data.Foldable (class Foldable)
+import Data.List (List(..), nub, singleton, snoc, (:))
+import Data.List as List
 import Data.Maybe (Maybe(..), maybe)
 import Data.String (Pattern(..), Replacement(..), joinWith)
 import Data.String as String
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
+import Data.Tuple (Tuple(..), fst, snd)
 import Prelude (show, ($), (<$>), (<>), (>>>))
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
+import Type.Row (class RowToList, Cons, Nil, kind RowList, RLProxy(..), RProxy(..))
 import Undefined (undefined)
 
 class SqlType t where
@@ -77,6 +87,7 @@ data Table (cols :: #Type) = Table TableName (List UnTypedColumn) (Record cols)
 
 data UnTypedColumn = UnTypedColumn TableName ColumnName String -- ???
 
+-- TODO: do we really need the name to be part of the type? it would be simpler without
 newtype TypedColumn (name :: Symbol) typ = TypedColumn UnTypedColumn
 
 newtype Column (name :: Symbol) typ = Column (SProxy name)
@@ -84,6 +95,7 @@ newtype Column (name :: Symbol) typ = Column (SProxy name)
 -- | A query that returns a table with the given columns
 data SelectQuery (r :: #Type) = SelectQuery (List UnTypedColumn) (Maybe (Expression Boolean))
 
+-- | A query that deletes data from a table
 data DeleteQuery = DeleteQuery TableName (Expression Boolean)
 
 data Constant = StringConstant String
@@ -180,7 +192,7 @@ createTableSql :: forall cols. Table cols -> String
 createTableSql (Table tName cols rec) =
   "create table " <> tableNameSql tName <> " (" <> columnsSql <> ")"
   where
-    columnsSql = joinWith ", " $ Array.fromFoldable $ columnSql <$> cols
+    columnsSql = joinCsv $ columnSql <$> cols
     columnSql (UnTypedColumn _ (ColumnName cName) createSql) =
       cName <> " " <> createSql
 
@@ -188,11 +200,11 @@ selectSql :: forall cols. SelectQuery cols -> String
 selectSql (SelectQuery cols filter') =
   "select " <> selectClause <> " from " <> fromClause <> whereClause
   where
-    selectClause = joinWith ", " $ Array.fromFoldable $ selectCol <$> cols
+    selectClause = joinCsv $ selectCol <$> cols
     selectCol (UnTypedColumn (TableName tName) (ColumnName cName) _) =
       tName <> "." <> cName
 
-    fromClause = joinWith ", " $ Array.fromFoldable tables
+    fromClause = joinCsv tables
     tables = nub $ (\(UnTypedColumn tName _ _) -> tableNameSql tName) <$> cols
 
     whereClause = maybe "" (expressionSql >>> (" where " <> _)) filter'
@@ -201,8 +213,63 @@ deleteSql :: DeleteQuery -> String
 deleteSql (DeleteQuery tName filter') =
   "delete from " <> tableNameSql tName <> " where " <> expressionSql filter'
 
+class ValuesMatchColumns (cols :: #Type) (vals :: #Type) | cols -> vals, vals -> cols where
+  getColumnValues :: Record vals -> List (Tuple ColumnName Constant)
+
+instance valuesMatchColumnsImpl
+ :: ( RowToList colsR colsRL
+    , RowToList valsR valsRL
+    , ApplyValuesMatchColumns colsRL valsRL valsR ) => ValuesMatchColumns colsR valsR
+  where
+    getColumnValues rec = getColumnValues'
+     (RLProxy :: RLProxy colsRL)
+     (RLProxy :: RLProxy valsRL)
+     (RProxy :: RProxy valsR)
+     rec
+
+class ApplyValuesMatchColumns (colsRL :: RowList) (valsRL :: RowList) (valsR :: #Type)
+  where
+    getColumnValues' :: RLProxy colsRL -> RLProxy valsRL -> RProxy valsR -> Record valsR -> List (Tuple ColumnName Constant)
+
+instance applyValuesMatchColumnsNil
+  :: ApplyValuesMatchColumns Nil Nil valsR
+    where
+      getColumnValues' _ _ _ _ = Nil
+
+instance applyValuesMatchColumnsCons
+  :: ( ApplyValuesMatchColumns colsRLTail valsRLTail valsRTail
+     , IsSymbol name
+     , SqlType typ
+     , Cons name typ valsRTail valsR
+     , Lacks name valsRTail ) =>
+     ApplyValuesMatchColumns (Cons name (TypedColumn name typ) colsRLTail) (Cons name typ valsRLTail) valsR
+    where
+      getColumnValues' _ _ _ rec =
+        Tuple cName cValue : tail
+        where
+          nameProxy = SProxy :: SProxy name
+          cName = ColumnName $ reflectSymbol nameProxy
+          cValue = toConstant $ Record.get nameProxy rec
+          tailRec = Record.delete nameProxy rec
+          tail = getColumnValues'
+            (RLProxy :: RLProxy colsRLTail)
+            (RLProxy :: RLProxy valsRLTail)
+            (RProxy :: RProxy valsRTail)
+            tailRec
+
+insertSql :: forall cols vals. ValuesMatchColumns cols vals => Table cols -> Record vals -> String
+insertSql (Table tName _ _) vals =
+  "insert into " <> tableNameSql tName <> " (" <> colsSql <> ") values (" <> valuesSql <> ")"
+  where
+    columnValues = List.reverse (getColumnValues vals)
+    colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
+    valuesSql = joinCsv $ (snd >>> constantSql) <$> columnValues
+
 tableNameSql :: TableName -> String
-tableNameSql (TableName name) = name -- TODO: quote if neccessary (for column names too)
+tableNameSql (TableName name) = name -- TODO: quote if neccessary
+
+columnNameSql :: ColumnName -> String
+columnNameSql (ColumnName name) = name -- TODO: quote if neccessary
 
 expressionSql :: forall result. Expression result -> String
 expressionSql (Expression e) = exprSql e
@@ -214,8 +281,12 @@ expressionSql (Expression e) = exprSql e
     exprSql (ConstantExpr c) = constantSql c
     exprSql (ColumnExpr (UnTypedColumn (TableName t) (ColumnName c) _)) = t <> "." <> c
 
-    constantSql :: Constant -> String
-    constantSql (StringConstant s) = "'" <> String.replaceAll (Pattern "'") (Replacement "''") s <> "'"
-    constantSql (IntConstant i) = show i
-    constantSql (NumberConstant f) = show f
-    constantSql NullConstant = "null"
+-- TODO: don't turn constants into SQL strings! instead send them to the SQL server as parameters
+constantSql :: Constant -> String
+constantSql (StringConstant s) = "'" <> String.replaceAll (Pattern "'") (Replacement "''") s <> "'"
+constantSql (IntConstant i) = show i
+constantSql (NumberConstant f) = show f
+constantSql NullConstant = "null"
+
+joinCsv :: forall f. Foldable f => f String -> String
+joinCsv = Array.fromFoldable >>> joinWith ", "

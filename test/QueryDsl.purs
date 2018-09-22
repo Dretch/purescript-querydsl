@@ -2,7 +2,7 @@ module Test.QueryDsl (test) where
 
 import Prelude (Unit, discard)
 
-import QueryDsl (Column, SelectQuery, DeleteQuery, Table, addColumn, column, createTableSql, filter, from, deleteFrom, makeTable, selectSql, deleteSql, select, (++))
+import QueryDsl (Column, SelectQuery, DeleteQuery, Table, addColumn, column, createTableSql, filter, from, deleteFrom, makeTable, selectSql, deleteSql, insertSql, select, (++))
 import QueryDsl.Expressions ((:==))
 import Test.Spec (Spec, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -44,5 +44,8 @@ test = do
 
     it "filteredDeleteQuery" do
       deleteSql filteredDeleteQuery `shouldEqual` "delete from test where (test.id = 'abc')"
+
+    it "insertQuery" do
+      insertSql testTable {id: "abc", count: 123} `shouldEqual` "insert into test (id, count) values ('abc', 123)"
 
     Expressions.test
