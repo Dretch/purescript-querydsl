@@ -1,12 +1,11 @@
 module Test.QueryDsl (test) where
 
 import Prelude (Unit, discard)
-
-import QueryDsl (Column, SelectQuery, DeleteQuery, Table, addColumn, column, createTableSql, filter, from, deleteFrom, makeTable, selectSql, deleteSql, insertSql, select, (++))
+import QueryDsl (Column, InsertQuery, DeleteQuery, SelectQuery, Table, addColumn, column, createTableSql, deleteFrom, deleteSql, filter, from, insertInto, insertSql, makeTable, select, selectSql, (++))
 import QueryDsl.Expressions ((:==))
+import Test.QueryDsl.Expressions as Expressions
 import Test.Spec (Spec, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
-import Test.QueryDsl.Expressions as Expressions
 
 -- TODO: nullable columns?
 testTable :: Table _
@@ -29,6 +28,9 @@ filteredDeleteQuery =
   let t = from testTable in
   deleteFrom testTable (t.id :== "abc")
 
+insertQuery :: InsertQuery
+insertQuery = insertInto testTable {id: "abc", count: 123}
+
 test :: Spec Unit
 test = do
   describeOnly "QueryDsl" do
@@ -46,6 +48,6 @@ test = do
       deleteSql filteredDeleteQuery `shouldEqual` "delete from test where (test.id = 'abc')"
 
     it "insertQuery" do
-      insertSql testTable {id: "abc", count: 123} `shouldEqual` "insert into test (id, count) values ('abc', 123)"
+      insertSql insertQuery `shouldEqual` "insert into test (id, count) values ('abc', 123)"
 
     Expressions.test

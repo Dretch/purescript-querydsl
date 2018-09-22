@@ -8,6 +8,7 @@ module QueryDsl (
   Column,
   ColumnName,
   SelectQuery,
+  InsertQuery,
   DeleteQuery,
   Expression,
   class ToExpression,
@@ -24,6 +25,7 @@ module QueryDsl (
   select,
   selectPlus,
   (++),
+  insertInto,
   deleteFrom,
   prefixOperator,
   postfixOperator,
@@ -87,7 +89,6 @@ data Table (cols :: #Type) = Table TableName (List UnTypedColumn) (Record cols)
 
 data UnTypedColumn = UnTypedColumn TableName ColumnName String -- ???
 
--- TODO: do we really need the name to be part of the type? it would be simpler without
 newtype TypedColumn (name :: Symbol) typ = TypedColumn UnTypedColumn
 
 newtype Column (name :: Symbol) typ = Column (SProxy name)
@@ -97,6 +98,8 @@ data SelectQuery (r :: #Type) = SelectQuery (List UnTypedColumn) (Maybe (Express
 
 -- | A query that deletes data from a table
 data DeleteQuery = DeleteQuery TableName (Expression Boolean)
+
+data InsertQuery = InsertQuery TableName (List (Tuple ColumnName Constant))
 
 data Constant = StringConstant String
               | IntConstant Int
@@ -171,6 +174,12 @@ infixl 5 selectPlus as ++
 
 deleteFrom :: forall cols. Table cols -> Expression Boolean -> DeleteQuery
 deleteFrom (Table tName  _ _) filter' = DeleteQuery tName filter'
+
+insertInto :: forall cols vals. ValuesMatchColumns cols vals => Table cols -> Record vals -> InsertQuery
+insertInto (Table tName _ _) vals =
+  InsertQuery tName columnValues
+  where
+    columnValues = List.reverse $ getColumnValues vals
 
 filter :: forall result. SelectQuery result -> Expression Boolean -> SelectQuery result
 filter (SelectQuery selector Nothing) exp = SelectQuery selector (Just exp)
@@ -257,11 +266,10 @@ instance applyValuesMatchColumnsCons
             (RProxy :: RProxy valsRTail)
             tailRec
 
-insertSql :: forall cols vals. ValuesMatchColumns cols vals => Table cols -> Record vals -> String
-insertSql (Table tName _ _) vals =
+insertSql :: InsertQuery -> String
+insertSql (InsertQuery tName columnValues) =
   "insert into " <> tableNameSql tName <> " (" <> colsSql <> ") values (" <> valuesSql <> ")"
   where
-    columnValues = List.reverse (getColumnValues vals)
     colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
     valuesSql = joinCsv $ (snd >>> constantSql) <$> columnValues
 
