@@ -11,27 +11,30 @@ module QueryDsl (
   InsertQuery,
   DeleteQuery,
   Expression,
+  UntypedExpression,
   class ToExpression,
   BinaryOperator,
   UnaryOperator,
   class ValuesMatchColumns,
-  class ApplyValuesMatchColumns,
   getColumnValues,
+  class ApplyValuesMatchColumns,
   getColumnValues',
   toExpression,
+  alwaysTrue,
   makeTable,
   addColumn,
   column,
-  select,
-  selectPlus,
-  (++),
+  selectFrom,
+  class SelectExpressions,
+  getSelectExpressions,
+  class ApplySelectExpressions,
+  getSelectExpressions',
   insertInto,
   deleteFrom,
   prefixOperator,
   postfixOperator,
   binaryOperator,
   from,
-  filter,
   createTableSql,
   selectSql,
   insertSql,
@@ -40,9 +43,9 @@ module QueryDsl (
 
 import Data.Array as Array
 import Data.Foldable (class Foldable)
-import Data.List (List(..), nub, singleton, snoc, (:))
+import Data.List (List(..), snoc, (:))
 import Data.List as List
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..))
 import Data.String (Pattern(..), Replacement(..), joinWith)
 import Data.String as String
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
@@ -93,8 +96,8 @@ newtype TypedColumn (name :: Symbol) typ = TypedColumn UnTypedColumn
 
 newtype Column (name :: Symbol) typ = Column (SProxy name)
 
--- | A query that returns a table with the given columns
-data SelectQuery (r :: #Type) = SelectQuery (List UnTypedColumn) (Maybe (Expression Boolean))
+-- | A query that select data from a table
+data SelectQuery (results :: #Type) = SelectQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
 
 -- | A query that deletes data from a table
 data DeleteQuery = DeleteQuery TableName (Expression Boolean)
@@ -111,6 +114,7 @@ data UntypedExpression = PrefixOperatorExpr String UntypedExpression
                        | BinaryOperatorExpr String UntypedExpression UntypedExpression
                        | ConstantExpr Constant
                        | ColumnExpr UnTypedColumn
+                       | AlwaysTrueExpr
 
 newtype Expression result = Expression UntypedExpression
 
@@ -134,6 +138,9 @@ type BinaryOperator a b input result =
   ToExpression a input =>
   ToExpression b input =>
   a -> b -> Expression result
+
+alwaysTrue :: Expression Boolean
+alwaysTrue = Expression AlwaysTrueExpr
 
 makeTable :: String -> Table ()
 makeTable name = Table (TableName name) Nil {}
@@ -159,18 +166,48 @@ column = Column SProxy
 from :: forall cols. Table cols -> Record cols
 from (Table name cols rec) = rec
 
-select :: forall name typ result.
-  Cons name typ () result => TypedColumn name typ -> SelectQuery result
-select (TypedColumn uc) = SelectQuery (singleton uc) Nothing
+class SelectExpressions (exprs :: #Type) (result :: #Type) | exprs -> result where
+  getSelectExpressions :: Record exprs -> List (Tuple ColumnName UntypedExpression)
 
-selectPlus :: forall name typ start result.
-  Cons name typ start result =>
-  SelectQuery start ->
-  TypedColumn name typ ->
-  SelectQuery result
-selectPlus (SelectQuery start filter') (TypedColumn c) = SelectQuery (snoc start c) filter'
+instance selectExpressionsImpl
+  :: ( RowToList exprsR exprsRL
+     , RowToList resultsR resultsRL
+     , ApplySelectExpressions exprsRL exprsR resultsRL ) => SelectExpressions exprsR resultsR
+  where
+    getSelectExpressions exprs = getSelectExpressions'
+      (RLProxy :: RLProxy exprsRL) exprs (RLProxy :: RLProxy resultsRL)
 
-infixl 5 selectPlus as ++
+class ApplySelectExpressions (exprsRL :: RowList) (exprsR :: #Type) (resultsRL :: RowList) where
+  getSelectExpressions' :: RLProxy exprsRL -> Record exprsR -> RLProxy resultsRL -> List (Tuple ColumnName UntypedExpression)
+
+instance applySelectExpressionsNil
+  :: ApplySelectExpressions Nil exprsR Nil
+  where
+    getSelectExpressions' _ _ _ = Nil
+
+instance applySelectExpressionsCons
+  :: ( ApplySelectExpressions exprsRLTail exprsRTail resultsRLTail
+     , IsSymbol name
+     , ToExpression toExpr typ
+     , Cons name toExpr exprsRTail exprsR
+     , Lacks name exprsRTail ) =>
+  ApplySelectExpressions (Cons name toExpr exprsRLTail) exprsR (Cons name typ resultsRLTail)
+  where
+    getSelectExpressions' _ exprs _ =
+      Tuple cName uExpr : tail
+      where
+        nameProxy = SProxy :: SProxy name
+        cName = ColumnName $ reflectSymbol nameProxy
+        uExpr = untypeExpression $ toExpression $ Record.get nameProxy exprs
+        tailExprs = Record.delete nameProxy exprs
+        tail = getSelectExpressions'
+          (RLProxy :: RLProxy exprsRLTail)
+          (tailExprs :: Record exprsRTail)
+          (RLProxy :: RLProxy resultsRLTail)
+
+selectFrom :: forall cols exprs results. SelectExpressions exprs results => Table cols -> Record exprs -> Expression Boolean -> SelectQuery results
+selectFrom (Table tName _ _) exprs filter =
+  SelectQuery tName (getSelectExpressions exprs) filter
 
 deleteFrom :: forall cols. Table cols -> Expression Boolean -> DeleteQuery
 deleteFrom (Table tName  _ _) filter' = DeleteQuery tName filter'
@@ -180,10 +217,6 @@ insertInto (Table tName _ _) vals =
   InsertQuery tName columnValues
   where
     columnValues = List.reverse $ getColumnValues vals
-
-filter :: forall result. SelectQuery result -> Expression Boolean -> SelectQuery result
-filter (SelectQuery selector Nothing) exp = SelectQuery selector (Just exp)
-filter (SelectQuery selector (Just exp)) exp' = SelectQuery selector (Just $ binaryOperator "and" exp' exp)
 
 untypeExpression :: forall a. Expression a -> UntypedExpression
 untypeExpression (Expression ut) = ut
@@ -206,17 +239,17 @@ createTableSql (Table tName cols rec) =
       cName <> " " <> createSql
 
 selectSql :: forall cols. SelectQuery cols -> String
-selectSql (SelectQuery cols filter') =
-  "select " <> selectClause <> " from " <> fromClause <> whereClause
+selectSql (SelectQuery tName cols filter') =
+  "select " <> selectClause <> " from " <> tableNameSql tName <> whereClause
   where
     selectClause = joinCsv $ selectCol <$> cols
-    selectCol (UnTypedColumn (TableName tName) (ColumnName cName) _) =
-      tName <> "." <> cName
 
-    fromClause = joinCsv tables
-    tables = nub $ (\(UnTypedColumn tName _ _) -> tableNameSql tName) <$> cols
+    selectCol (Tuple _ (ColumnExpr (UnTypedColumn tName' cName _))) = tableColumnNameSql tName' cName
+    selectCol (Tuple cName expr) = untypedExpressionSql expr <> " as " <> columnNameSql cName
 
-    whereClause = maybe "" (expressionSql >>> (" where " <> _)) filter'
+    whereClause = case filter' of
+      Expression AlwaysTrueExpr -> ""
+      expr -> " where " <> expressionSql expr
 
 deleteSql :: DeleteQuery -> String
 deleteSql (DeleteQuery tName filter') =
@@ -279,15 +312,19 @@ tableNameSql (TableName name) = name -- TODO: quote if neccessary
 columnNameSql :: ColumnName -> String
 columnNameSql (ColumnName name) = name -- TODO: quote if neccessary
 
+tableColumnNameSql :: TableName -> ColumnName -> String
+tableColumnNameSql tName cName = tableNameSql tName <> "." <> columnNameSql cName
+
 expressionSql :: forall result. Expression result -> String
-expressionSql (Expression e) = exprSql e
-  where
-    exprSql :: UntypedExpression -> String
-    exprSql (PrefixOperatorExpr op a) = "(" <> op <> " " <> exprSql a <> ")"
-    exprSql (PostfixOperatorExpr op a) = "(" <> exprSql a <> " " <> op <> ")"
-    exprSql (BinaryOperatorExpr op a b) = "(" <> exprSql a <> " " <> op <> " " <> exprSql b <> ")"
-    exprSql (ConstantExpr c) = constantSql c
-    exprSql (ColumnExpr (UnTypedColumn (TableName t) (ColumnName c) _)) = t <> "." <> c
+expressionSql (Expression e) = untypedExpressionSql e
+
+untypedExpressionSql :: UntypedExpression -> String
+untypedExpressionSql (PrefixOperatorExpr op a) = "(" <> op <> " " <> untypedExpressionSql a <> ")"
+untypedExpressionSql (PostfixOperatorExpr op a) = "(" <> untypedExpressionSql a <> " " <> op <> ")"
+untypedExpressionSql (BinaryOperatorExpr op a b) = "(" <> untypedExpressionSql a <> " " <> op <> " " <> untypedExpressionSql b <> ")"
+untypedExpressionSql (ConstantExpr c) = constantSql c
+untypedExpressionSql (ColumnExpr (UnTypedColumn tName cName _)) = tableColumnNameSql tName cName
+untypedExpressionSql AlwaysTrueExpr = "(1 = 1)"
 
 -- TODO: don't turn constants into SQL strings! instead send them to the SQL server as parameters
 constantSql :: Constant -> String
