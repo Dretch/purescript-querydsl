@@ -50,11 +50,11 @@ import Data.Tuple (Tuple(..), fst, snd)
 import Prelude (show, ($), (<$>), (<>), (>>>))
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
+import Type.Proxy (Proxy(..))
 import Type.Row (class RowToList, Cons, Nil, kind RowList, RLProxy(..), RProxy(..))
-import Undefined (undefined)
 
 class SqlType t where
-  sqlTypeSyntax :: t -> { typ :: String, nullable :: Boolean }
+  sqlTypeSyntax :: Proxy t -> { typ :: String, nullable :: Boolean }
   toConstant :: t -> Constant
 
 -- TODO: fromConstant!
@@ -77,7 +77,7 @@ instance sqlTypeBoolean :: SqlType Boolean where
   toConstant false = IntConstant 0
 
 instance sqlTypeMaybe :: SqlType a => SqlType (Maybe a) where
-  sqlTypeSyntax _ = { typ: (sqlTypeSyntax $ undefined :: a).typ, nullable: true }
+  sqlTypeSyntax _ = { typ: (sqlTypeSyntax $ Proxy :: Proxy a).typ, nullable: true }
   toConstant (Just x) = toConstant x
   toConstant Nothing = NullConstant
 
@@ -147,7 +147,7 @@ addColumn :: forall name typ oldCols newCols.
   Column name typ ->
   Table newCols
 addColumn (Table tName cols rec) (Column cName) =
-  let {typ, nullable} = sqlTypeSyntax (undefined :: typ)
+  let {typ, nullable} = sqlTypeSyntax (Proxy :: Proxy typ)
       null = if nullable then "" else " not null"
       col = UnTypedColumn tName (ColumnName $ reflectSymbol cName) (typ <> null)
       typedCol = TypedColumn col
