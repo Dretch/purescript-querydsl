@@ -7,6 +7,7 @@
     "bower": "^1.8.4"
   },
   "scripts": {
+    "clean": "rm -rf .pulp-cache bower_components node_modules output",
     "install": "bower install && pulp build",
     "test": "pulp test"
   }
