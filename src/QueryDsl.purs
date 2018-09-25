@@ -16,27 +16,27 @@ module QueryDsl (
   class ToExpression,
   BinaryOperator,
   UnaryOperator,
-  class ValuesMatchColumns,
-  getColumnValues,
-  class ApplyValuesMatchColumns,
-  getColumnValues',
   toExpression,
   alwaysTrue,
   makeTable,
   addColumn,
   column,
   selectFrom,
+  update,
+  insertInto,
+  deleteFrom,
+  class InsertExpressions,
+  getInsertExpressions,
+  class ApplyInsertExpressions,
+  getInsertExpressions',
   class SelectExpressions,
   getSelectExpressions,
   class ApplySelectExpressions,
   getSelectExpressions',
-  insertInto,
   class UpdateExpressions,
   getUpdateExpressions,
   class ApplyUpdateExpressions,
   getUpdateExpressions',
-  update,
-  deleteFrom,
   prefixOperator,
   postfixOperator,
   binaryOperator,
@@ -218,14 +218,53 @@ selectFrom :: forall cols exprs results. SelectExpressions exprs results => Tabl
 selectFrom (Table tName _ _) exprs filter =
   SelectQuery tName (getSelectExpressions exprs) filter
 
-deleteFrom :: forall cols. Table cols -> Expression Boolean -> DeleteQuery
-deleteFrom (Table tName  _ _) filter' = DeleteQuery tName filter'
+class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
+  getInsertExpressions :: Record exprs -> List (Tuple ColumnName Constant)
 
-insertInto :: forall cols vals. ValuesMatchColumns cols vals => Table cols -> Record vals -> InsertQuery
-insertInto (Table tName _ _) vals =
-  InsertQuery tName columnValues
+instance insertExpressionsImpl
+ :: ( RowToList colsR colsRL
+    , RowToList exprsR exprsRL
+    , ApplyInsertExpressions colsRL exprsRL exprsR ) => InsertExpressions colsR exprsR
   where
-    columnValues = List.reverse $ getColumnValues vals
+    getInsertExpressions rec = getInsertExpressions'
+     (RLProxy :: RLProxy colsRL)
+     (RLProxy :: RLProxy exprsRL)
+     (RProxy :: RProxy exprsR)
+     rec
+
+class ApplyInsertExpressions (colsRL :: RowList) (exprsRL :: RowList) (exprsR :: #Type)
+  where
+    getInsertExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> RProxy exprsR -> Record exprsR -> List (Tuple ColumnName Constant)
+
+instance applyInsertExpressionsNil
+  :: ApplyInsertExpressions Nil Nil exprsR
+    where
+      getInsertExpressions' _ _ _ _ = Nil
+
+instance applyInsertExpressionsCons
+  :: ( ApplyInsertExpressions colsRLTail exprsRLTail exprsRTail
+     , IsSymbol name
+     , SqlType typ
+     , Cons name typ exprsRTail exprsR
+     , Lacks name exprsRTail ) =>
+     ApplyInsertExpressions (Cons name (TypedColumn name typ) colsRLTail) (Cons name typ exprsRLTail) exprsR
+    where
+      getInsertExpressions' _ _ _ rec =
+        Tuple cName cValue : tail
+        where
+          nameProxy = SProxy :: SProxy name
+          cName = ColumnName $ reflectSymbol nameProxy
+          cValue = toConstant $ Record.get nameProxy rec
+          tailRec = Record.delete nameProxy rec
+          tail = getInsertExpressions'
+            (RLProxy :: RLProxy colsRLTail)
+            (RLProxy :: RLProxy exprsRLTail)
+            (RProxy :: RProxy exprsRTail)
+            tailRec
+
+insertInto :: forall cols exprs. InsertExpressions cols exprs => Table cols -> Record exprs -> InsertQuery
+insertInto (Table tName _ _) exprs =
+  InsertQuery tName $ List.reverse $ getInsertExpressions exprs
 
 class UpdateExpressions (cols :: #Type) (exprs :: #Type) where
   getUpdateExpressions :: Record cols -> Record exprs -> List (Tuple ColumnName UntypedExpression)
@@ -270,6 +309,9 @@ update :: forall cols exprs. UpdateExpressions cols exprs => Table cols -> Recor
 update (Table tName _ cols) exprs filter =
   UpdateQuery tName (getUpdateExpressions cols exprs) filter
 
+deleteFrom :: forall cols. Table cols -> Expression Boolean -> DeleteQuery
+deleteFrom (Table tName  _ _) filter' = DeleteQuery tName filter'
+
 untypeExpression :: forall a. Expression a -> UntypedExpression
 untypeExpression (Expression ut) = ut
 
@@ -302,51 +344,6 @@ selectSql (SelectQuery tName cols filter) =
 deleteSql :: DeleteQuery -> String
 deleteSql (DeleteQuery tName filter) =
   "delete from " <> tableNameSql tName <>  whereClauseSql filter
-
--- todo: rename to InsertColumns/InsertValues?
-class ValuesMatchColumns (cols :: #Type) (vals :: #Type) | cols -> vals, vals -> cols where
-  getColumnValues :: Record vals -> List (Tuple ColumnName Constant)
-
-instance valuesMatchColumnsImpl
- :: ( RowToList colsR colsRL
-    , RowToList valsR valsRL
-    , ApplyValuesMatchColumns colsRL valsRL valsR ) => ValuesMatchColumns colsR valsR
-  where
-    getColumnValues rec = getColumnValues'
-     (RLProxy :: RLProxy colsRL)
-     (RLProxy :: RLProxy valsRL)
-     (RProxy :: RProxy valsR)
-     rec
-
-class ApplyValuesMatchColumns (colsRL :: RowList) (valsRL :: RowList) (valsR :: #Type)
-  where
-    getColumnValues' :: RLProxy colsRL -> RLProxy valsRL -> RProxy valsR -> Record valsR -> List (Tuple ColumnName Constant)
-
-instance applyValuesMatchColumnsNil
-  :: ApplyValuesMatchColumns Nil Nil valsR
-    where
-      getColumnValues' _ _ _ _ = Nil
-
-instance applyValuesMatchColumnsCons
-  :: ( ApplyValuesMatchColumns colsRLTail valsRLTail valsRTail
-     , IsSymbol name
-     , SqlType typ
-     , Cons name typ valsRTail valsR
-     , Lacks name valsRTail ) =>
-     ApplyValuesMatchColumns (Cons name (TypedColumn name typ) colsRLTail) (Cons name typ valsRLTail) valsR
-    where
-      getColumnValues' _ _ _ rec =
-        Tuple cName cValue : tail
-        where
-          nameProxy = SProxy :: SProxy name
-          cName = ColumnName $ reflectSymbol nameProxy
-          cValue = toConstant $ Record.get nameProxy rec
-          tailRec = Record.delete nameProxy rec
-          tail = getColumnValues'
-            (RLProxy :: RLProxy colsRLTail)
-            (RLProxy :: RLProxy valsRLTail)
-            (RProxy :: RProxy valsRTail)
-            tailRec
 
 insertSql :: InsertQuery -> String
 insertSql (InsertQuery tName columnValues) =
