@@ -8,6 +8,7 @@ module QueryDsl (
   Column,
   ColumnName,
   SelectQuery,
+  UpdateQuery,
   InsertQuery,
   DeleteQuery,
   Expression,
@@ -30,6 +31,11 @@ module QueryDsl (
   class ApplySelectExpressions,
   getSelectExpressions',
   insertInto,
+  class UpdateExpressions,
+  getUpdateExpressions,
+  class ApplyUpdateExpressions,
+  getUpdateExpressions',
+  update,
   deleteFrom,
   prefixOperator,
   postfixOperator,
@@ -38,6 +44,7 @@ module QueryDsl (
   createTableSql,
   selectSql,
   insertSql,
+  updateSql,
   deleteSql,
   expressionSql) where
 
@@ -98,6 +105,8 @@ newtype Column (name :: Symbol) typ = Column (SProxy name)
 
 -- | A query that select data from a table
 data SelectQuery (results :: #Type) = SelectQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
+
+data UpdateQuery = UpdateQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
 
 -- | A query that deletes data from a table
 data DeleteQuery = DeleteQuery TableName (Expression Boolean)
@@ -191,7 +200,7 @@ instance applySelectExpressionsCons
      , ToExpression toExpr typ
      , Cons name toExpr exprsRTail exprsR
      , Lacks name exprsRTail ) =>
-  ApplySelectExpressions (Cons name toExpr exprsRLTail) exprsR (Cons name typ resultsRLTail)
+    ApplySelectExpressions (Cons name toExpr exprsRLTail) exprsR (Cons name typ resultsRLTail)
   where
     getSelectExpressions' _ exprs _ =
       Tuple cName uExpr : tail
@@ -218,6 +227,49 @@ insertInto (Table tName _ _) vals =
   where
     columnValues = List.reverse $ getColumnValues vals
 
+class UpdateExpressions (cols :: #Type) (exprs :: #Type) where
+  getUpdateExpressions :: Record cols -> Record exprs -> List (Tuple ColumnName UntypedExpression)
+
+instance updateExpressionsImpl
+  :: ( RowToList colsR colsRL
+     , RowToList exprsR exprsRL
+     , ApplyUpdateExpressions colsRL exprsRL exprsR ) => UpdateExpressions colsR exprsR
+  where
+    getUpdateExpressions cols exprs = getUpdateExpressions'
+      (RLProxy :: RLProxy colsRL) (RLProxy :: RLProxy exprsRL) exprs
+
+class ApplyUpdateExpressions (colsRL :: RowList) (exprsRL :: RowList) (exprsR :: #Type) where
+  getUpdateExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> Record exprsR -> List (Tuple ColumnName UntypedExpression)
+
+instance applyUpdateExpressionsNil
+  :: ApplyUpdateExpressions colsRL Nil exprsR
+  where
+    getUpdateExpressions' _ _ _ = Nil
+
+else instance applyUpdateExpressionsCons
+  :: ( ApplyUpdateExpressions colsRLTail exprsRLTail exprsRTail
+     , IsSymbol name
+     , ToExpression toExpr typ
+     , Cons name toExpr exprsRTail exprsR
+     , Lacks name exprsRTail ) =>
+    ApplyUpdateExpressions (Cons name (TypedColumn name typ) colsRLTail) (Cons name toExpr exprsRLTail) exprsR
+  where
+    getUpdateExpressions' _ _ exprs =
+      Tuple cName uExpr : tail
+      where
+        nameProxy = SProxy :: SProxy name
+        cName = ColumnName $ reflectSymbol nameProxy
+        uExpr = untypeExpression $ toExpression $ Record.get nameProxy exprs
+        tailExprs = Record.delete nameProxy exprs
+        tail = getUpdateExpressions'
+          (RLProxy :: RLProxy colsRLTail)
+          (RLProxy :: RLProxy exprsRLTail)
+          (tailExprs :: Record exprsRTail)
+
+update :: forall cols exprs. UpdateExpressions cols exprs => Table cols -> Record exprs -> Expression Boolean -> UpdateQuery
+update (Table tName _ cols) exprs filter =
+  UpdateQuery tName (getUpdateExpressions cols exprs) filter
+
 untypeExpression :: forall a. Expression a -> UntypedExpression
 untypeExpression (Expression ut) = ut
 
@@ -239,22 +291,19 @@ createTableSql (Table tName cols rec) =
       cName <> " " <> createSql
 
 selectSql :: forall cols. SelectQuery cols -> String
-selectSql (SelectQuery tName cols filter') =
-  "select " <> selectClause <> " from " <> tableNameSql tName <> whereClause
+selectSql (SelectQuery tName cols filter) =
+  "select " <> selectClause <> " from " <> tableNameSql tName <> whereClauseSql filter
   where
     selectClause = joinCsv $ selectCol <$> cols
 
     selectCol (Tuple _ (ColumnExpr (UnTypedColumn tName' cName _))) = tableColumnNameSql tName' cName
     selectCol (Tuple cName expr) = untypedExpressionSql expr <> " as " <> columnNameSql cName
 
-    whereClause = case filter' of
-      Expression AlwaysTrueExpr -> ""
-      expr -> " where " <> expressionSql expr
-
 deleteSql :: DeleteQuery -> String
-deleteSql (DeleteQuery tName filter') =
-  "delete from " <> tableNameSql tName <> " where " <> expressionSql filter'
+deleteSql (DeleteQuery tName filter) =
+  "delete from " <> tableNameSql tName <>  whereClauseSql filter
 
+-- todo: rename to InsertColumns/InsertValues?
 class ValuesMatchColumns (cols :: #Type) (vals :: #Type) | cols -> vals, vals -> cols where
   getColumnValues :: Record vals -> List (Tuple ColumnName Constant)
 
@@ -306,6 +355,13 @@ insertSql (InsertQuery tName columnValues) =
     colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
     valuesSql = joinCsv $ (snd >>> constantSql) <$> columnValues
 
+updateSql :: UpdateQuery -> String
+updateSql (UpdateQuery tName columnValues filter) =
+  "update " <> tableNameSql tName <> " set " <> colsSql <> whereClauseSql filter
+  where
+    colsSql = joinCsv $ colSql <$> columnValues
+    colSql (Tuple cName expr) = columnNameSql cName <> " = " <> untypedExpressionSql expr
+
 tableNameSql :: TableName -> String
 tableNameSql (TableName name) = name -- TODO: quote if neccessary
 
@@ -325,6 +381,10 @@ untypedExpressionSql (BinaryOperatorExpr op a b) = "(" <> untypedExpressionSql a
 untypedExpressionSql (ConstantExpr c) = constantSql c
 untypedExpressionSql (ColumnExpr (UnTypedColumn tName cName _)) = tableColumnNameSql tName cName
 untypedExpressionSql AlwaysTrueExpr = "(1 = 1)"
+
+whereClauseSql :: Expression Boolean -> String
+whereClauseSql (Expression AlwaysTrueExpr) = ""
+whereClauseSql expr = " where " <> expressionSql expr
 
 -- TODO: don't turn constants into SQL strings! instead send them to the SQL server as parameters
 constantSql :: Constant -> String
