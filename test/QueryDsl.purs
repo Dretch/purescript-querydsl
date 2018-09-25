@@ -2,17 +2,18 @@ module Test.QueryDsl (test) where
 
 import Prelude
 
+import Data.Maybe (Maybe(..))
 import QueryDsl (Column, InsertQuery, DeleteQuery, SelectQuery, UpdateQuery, Table, alwaysTrue, addColumn, column, createTableSql, deleteFrom, deleteSql, update, insertInto, from, insertSql, updateSql, makeTable, selectFrom, selectSql)
 import QueryDsl.Expressions ((:==), (:+), (:*))
 import Test.QueryDsl.Expressions as Expressions
 import Test.Spec (Spec, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
 
--- TODO: nullable columns?
 testTable :: Table _
 testTable = makeTable "test"
   `addColumn` (column :: Column "id" String)
   `addColumn` (column :: Column "count" Int)
+  `addColumn` (column :: Column "description" (Maybe String))
 
 simpleSelectQuery :: SelectQuery (id :: String, count :: Int)
 simpleSelectQuery =
@@ -40,14 +41,14 @@ filteredDeleteQuery =
   deleteFrom testTable (t.id :== "abc")
 
 insertQuery :: InsertQuery
-insertQuery = insertInto testTable {id: "abc", count: 123}
+insertQuery = insertInto testTable {id: "abc", count: 123, description: Nothing :: Maybe String}
 
 test :: Spec Unit
 test = do
   describeOnly "QueryDsl" do
 
     it "createTableSql" do
-      createTableSql testTable `shouldEqual` "create table test (id text not null, count integer not null)"
+      createTableSql testTable `shouldEqual` "create table test (id text not null, count integer not null, description text)"
 
     it "simpleSelectQuery" do
       selectSql simpleSelectQuery `shouldEqual` "select test.count, test.id from test"
@@ -62,7 +63,7 @@ test = do
       deleteSql filteredDeleteQuery `shouldEqual` "delete from test where (test.id = 'abc')"
 
     it "insertQuery" do
-      insertSql insertQuery `shouldEqual` "insert into test (id, count) values ('abc', 123)"
+      insertSql insertQuery `shouldEqual` "insert into test (id, description, count) values ('abc', null, 123)"
 
     it "filteredUpdateQuery" do
       updateSql filteredUpdateQuery `shouldEqual` "update test set count = (test.count * 2) where (test.id = 'abc')"
