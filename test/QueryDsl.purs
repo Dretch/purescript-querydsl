@@ -2,9 +2,8 @@ module Test.QueryDsl (test) where
 
 import Prelude
 
-import Data.Maybe (Maybe(..))
-import QueryDsl (Column, InsertQuery, DeleteQuery, SelectQuery, Table, alwaysTrue, addColumn, column, createTableSql, deleteFrom, deleteSql, insertInto, from, insertSql, makeTable, selectFrom, selectSql)
-import QueryDsl.Expressions ((:==), (:+))
+import QueryDsl (Column, InsertQuery, DeleteQuery, SelectQuery, UpdateQuery, Table, alwaysTrue, addColumn, column, createTableSql, deleteFrom, deleteSql, update, insertInto, from, insertSql, updateSql, makeTable, selectFrom, selectSql)
+import QueryDsl.Expressions ((:==), (:+), (:*))
 import Test.QueryDsl.Expressions as Expressions
 import Test.Spec (Spec, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -28,7 +27,12 @@ filteredSelectQuery =
 expressiveSelectQuery :: SelectQuery (id :: String, count :: Int)
 expressiveSelectQuery =
   let t = from testTable in
-  selectFrom testTable {id : t.id, count: t.count :+ 1} alwaysTrue
+  selectFrom testTable {id: t.id, count: t.count :+ 1} alwaysTrue
+
+filteredUpdateQuery :: UpdateQuery
+filteredUpdateQuery =
+  let t = from testTable in
+  update testTable {count: t.count :* 2} (t.id :== "abc")
 
 filteredDeleteQuery :: DeleteQuery
 filteredDeleteQuery =
@@ -59,5 +63,8 @@ test = do
 
     it "insertQuery" do
       insertSql insertQuery `shouldEqual` "insert into test (id, count) values ('abc', 123)"
+
+    it "filteredUpdateQuery" do
+      updateSql filteredUpdateQuery `shouldEqual` "update test set count = (test.count * 2) where (test.id = 'abc')"
 
     Expressions.test
