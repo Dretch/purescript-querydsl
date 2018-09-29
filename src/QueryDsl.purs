@@ -2,7 +2,7 @@ module QueryDsl (
   class SqlType,
   sqlTypeSyntax,
   toConstant,
-  Constant,
+  Constant(..),
   Table,
   TypedColumn,
   Column,
@@ -16,6 +16,7 @@ module QueryDsl (
   class ToExpression,
   BinaryOperator,
   UnaryOperator,
+  ParameterizedSql(..),
   toExpression,
   alwaysTrue,
   makeTable,
@@ -48,16 +49,18 @@ module QueryDsl (
   deleteSql,
   expressionSql) where
 
+import Prelude
+
+import Control.Monad.Writer (Writer, runWriter, tell)
 import Data.Array as Array
 import Data.Foldable (class Foldable)
 import Data.List (List(..), snoc, (:))
 import Data.List as List
 import Data.Maybe (Maybe(..))
-import Data.String (Pattern(..), Replacement(..), joinWith)
-import Data.String as String
+import Data.String (joinWith)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
-import Data.Tuple (Tuple(..), fst, snd)
-import Prelude (show, ($), (<$>), (<>), (>>>))
+import Data.Traversable (traverse)
+import Data.Tuple (Tuple(..), fst, snd, uncurry)
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
 import Type.Proxy (Proxy(..))
@@ -118,6 +121,14 @@ data Constant = StringConstant String
               | NumberConstant Number
               | NullConstant
 
+derive instance eqConstant :: Eq Constant
+
+instance showConstant :: Show Constant where
+  show (StringConstant s) = show s
+  show (IntConstant i) = show i
+  show (NumberConstant f) = show f
+  show NullConstant = "null"
+
 data UntypedExpression = PrefixOperatorExpr String UntypedExpression
                        | PostfixOperatorExpr String UntypedExpression
                        | BinaryOperatorExpr String UntypedExpression UntypedExpression
@@ -147,6 +158,13 @@ type BinaryOperator a b input result =
   ToExpression a input =>
   ToExpression b input =>
   a -> b -> Expression result
+
+data ParameterizedSql = ParameterizedSql String (Array Constant)
+
+derive instance eqParameterizedSql :: Eq ParameterizedSql
+
+instance showParameterizedSql :: Show ParameterizedSql where
+  show (ParameterizedSql sql parameters) = show sql <> " with " <> show parameters
 
 alwaysTrue :: Expression Boolean
 alwaysTrue = Expression AlwaysTrueExpr
@@ -324,40 +342,62 @@ postfixOperator op a = Expression $ PostfixOperatorExpr op (untypeExpression $ t
 binaryOperator :: forall a b input result. String -> BinaryOperator a b input result
 binaryOperator op a b = Expression $ BinaryOperatorExpr op (untypeExpression $ toExpression a) (untypeExpression $ toExpression b)
 
-createTableSql :: forall cols. Table cols -> String
+type SqlWriter = Writer (Array Constant) String
+
+createTableSql :: forall cols. Table cols -> ParameterizedSql
 createTableSql (Table tName cols rec) =
-  "create table " <> tableNameSql tName <> " (" <> columnsSql <> ")"
+  ParameterizedSql ("create table " <> tableNameSql tName <> " (" <> columnsSql <> ")") []
   where
     columnsSql = joinCsv $ columnSql <$> cols
-    columnSql (UnTypedColumn _ (ColumnName cName) createSql) =
-      cName <> " " <> createSql
+    columnSql (UnTypedColumn _ cName createSql) =
+      columnNameSql cName <> " " <> createSql
 
-selectSql :: forall cols. SelectQuery cols -> String
+selectSql :: forall cols. SelectQuery cols -> ParameterizedSql
 selectSql (SelectQuery tName cols filter) =
-  "select " <> selectClause <> " from " <> tableNameSql tName <> whereClauseSql filter
+  uncurry ParameterizedSql $ runWriter writeSql
   where
-    selectClause = joinCsv $ selectCol <$> cols
+    writeSql = do
+      sc <- selectClause
+      wc <- whereClauseSql filter
+      pure $ "select " <> sc <> " from " <> tableNameSql tName <> wc
 
-    selectCol (Tuple _ (ColumnExpr (UnTypedColumn tName' cName _))) = tableColumnNameSql tName' cName
-    selectCol (Tuple cName expr) = untypedExpressionSql expr <> " as " <> columnNameSql cName
+    selectClause = joinCsv <$> traverse selectCol cols
 
-deleteSql :: DeleteQuery -> String
+    selectCol (Tuple _ (ColumnExpr (UnTypedColumn tName' cName _))) =
+      pure $ tableColumnNameSql tName' cName
+    selectCol (Tuple cName expr) = do
+      sql <- untypedExpressionSql expr
+      pure $ sql <> " as " <> columnNameSql cName
+
+deleteSql :: DeleteQuery -> ParameterizedSql
 deleteSql (DeleteQuery tName filter) =
-  "delete from " <> tableNameSql tName <>  whereClauseSql filter
+  let Tuple sql parameters = runWriter $ whereClauseSql filter in
+  ParameterizedSql ("delete from " <> tableNameSql tName <> sql) parameters
 
-insertSql :: InsertQuery -> String
+insertSql :: InsertQuery -> ParameterizedSql
 insertSql (InsertQuery tName columnValues) =
-  "insert into " <> tableNameSql tName <> " (" <> colsSql <> ") values (" <> valuesSql <> ")"
+  uncurry ParameterizedSql $ runWriter writeSql
   where
-    colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
-    valuesSql = joinCsv $ (snd >>> constantSql) <$> columnValues
+    writeSql = do
+      vs <- joinCsv <$> traverse (snd >>> constantSql) columnValues
+      pure $ "insert into " <> tableNameSql tName <> " (" <> colsSql <> ") values (" <> vs <> ")"
 
-updateSql :: UpdateQuery -> String
+    colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
+
+updateSql :: UpdateQuery -> ParameterizedSql
 updateSql (UpdateQuery tName columnValues filter) =
-  "update " <> tableNameSql tName <> " set " <> colsSql <> whereClauseSql filter
+  uncurry ParameterizedSql $ runWriter writeSql
   where
-    colsSql = joinCsv $ colSql <$> columnValues
-    colSql (Tuple cName expr) = columnNameSql cName <> " = " <> untypedExpressionSql expr
+    writeSql = do
+      c <- colsSql
+      wc <- whereClauseSql filter
+      pure $ "update " <> tableNameSql tName <> " set " <> c <> wc
+
+    colsSql = joinCsv <$> traverse colSql columnValues
+
+    colSql (Tuple cName expr) = do
+      e <- untypedExpressionSql expr
+      pure $ columnNameSql cName <> " = " <> e
 
 tableNameSql :: TableName -> String
 tableNameSql (TableName name) = name -- TODO: quote if neccessary
@@ -366,29 +406,44 @@ columnNameSql :: ColumnName -> String
 columnNameSql (ColumnName name) = name -- TODO: quote if neccessary
 
 tableColumnNameSql :: TableName -> ColumnName -> String
-tableColumnNameSql tName cName = tableNameSql tName <> "." <> columnNameSql cName
+tableColumnNameSql tName cName =
+  tableNameSql tName <> "." <> columnNameSql cName
 
-expressionSql :: forall result. Expression result -> String
-expressionSql (Expression e) = untypedExpressionSql e
+expressionSql :: forall result. Expression result -> ParameterizedSql
+expressionSql e =
+  uncurry ParameterizedSql $ runWriter (expressionSql' e)
 
-untypedExpressionSql :: UntypedExpression -> String
-untypedExpressionSql (PrefixOperatorExpr op a) = "(" <> op <> " " <> untypedExpressionSql a <> ")"
-untypedExpressionSql (PostfixOperatorExpr op a) = "(" <> untypedExpressionSql a <> " " <> op <> ")"
-untypedExpressionSql (BinaryOperatorExpr op a b) = "(" <> untypedExpressionSql a <> " " <> op <> " " <> untypedExpressionSql b <> ")"
-untypedExpressionSql (ConstantExpr c) = constantSql c
-untypedExpressionSql (ColumnExpr (UnTypedColumn tName cName _)) = tableColumnNameSql tName cName
-untypedExpressionSql AlwaysTrueExpr = "(1 = 1)"
+expressionSql' :: forall result. Expression result -> SqlWriter
+expressionSql' (Expression e) = untypedExpressionSql e
 
-whereClauseSql :: Expression Boolean -> String
-whereClauseSql (Expression AlwaysTrueExpr) = ""
-whereClauseSql expr = " where " <> expressionSql expr
+untypedExpressionSql :: UntypedExpression -> SqlWriter
+untypedExpressionSql (PrefixOperatorExpr op a) = do
+  sql <- untypedExpressionSql a
+  pure $ "(" <> op <> " " <> sql <> ")"
+untypedExpressionSql (PostfixOperatorExpr op a) = do
+  sql <- untypedExpressionSql a
+  pure $ "(" <> sql <> " " <> op <> ")"
+untypedExpressionSql (BinaryOperatorExpr op a b) = do
+  sqlA <- untypedExpressionSql a
+  sqlB <- untypedExpressionSql b
+  pure $ "(" <> sqlA <> " " <> op <> " " <> sqlB <> ")"
+untypedExpressionSql (ConstantExpr c) =
+  constantSql c
+untypedExpressionSql (ColumnExpr (UnTypedColumn tName cName _)) =
+  pure $ tableColumnNameSql tName cName
+untypedExpressionSql AlwaysTrueExpr =
+  pure "(1 = 1)"
 
--- TODO: don't turn constants into SQL strings! instead send them to the SQL server as parameters
-constantSql :: Constant -> String
-constantSql (StringConstant s) = "'" <> String.replaceAll (Pattern "'") (Replacement "''") s <> "'"
-constantSql (IntConstant i) = show i
-constantSql (NumberConstant f) = show f
-constantSql NullConstant = "null"
+constantSql :: Constant -> SqlWriter
+constantSql c = do
+  tell [c]
+  pure $ "?"
+
+whereClauseSql :: Expression Boolean -> SqlWriter
+whereClauseSql (Expression AlwaysTrueExpr) = pure ""
+whereClauseSql expr = do
+  e <- expressionSql' expr
+  pure $ " where " <> e
 
 joinCsv :: forall f. Foldable f => f String -> String
 joinCsv = Array.fromFoldable >>> joinWith ", "
