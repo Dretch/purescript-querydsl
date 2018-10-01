@@ -5,3 +5,4 @@ The goal is to allow building SQL in a type-safe and composable way, ideally wit
 # Features
  - Various combinators for creating type-checked predicates for selects/deletes.
  - Column names and types checked for insertions.
+ - Generates reasonably readable SQL for monitoring and debugging.

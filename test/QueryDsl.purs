@@ -1,10 +1,10 @@
 module Test.QueryDsl (test) where
 
-import Prelude
+import Prelude hiding (join)
 
 import Data.Maybe (Maybe(..))
 import QueryDsl
-import QueryDsl.Expressions ((:==), (:+), (:*))
+import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Expressions as Expressions
 import Test.Spec (Spec, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -12,35 +12,54 @@ import Test.Spec.Assertions (shouldEqual)
 c :: forall t. SqlType t => t -> Constant
 c = toConstant
 
+-- todo: test invalid queries
+
 testTable :: Table _
 testTable = makeTable "test"
   `addColumn` (column :: Column "id" String)
   `addColumn` (column :: Column "count" Int)
   `addColumn` (column :: Column "description" (Maybe String))
 
-simpleSelectQuery :: SelectQuery (id :: String, count :: Int)
-simpleSelectQuery =
-  let t = from testTable in
-  selectFrom testTable {id: t.id, count: t.count} alwaysTrue
+testChildTable :: Table _
+testChildTable = makeTable "child"
+  `addColumn` (column :: Column "id" String)
+  `addColumn` (column :: Column "extra" String)
 
-filteredSelectQuery :: SelectQuery (id :: String)
-filteredSelectQuery =
-  let t = from testTable in
-  selectFrom testTable {id: t.id} (t.id :== "abc")
+simpleSelectQuery :: SelectQuery (id :: String, count :: Int) Unit
+simpleSelectQuery = do
+  t <- from testTable
+  select {id: t.id, count: t.count} alwaysTrue
 
-expressiveSelectQuery :: SelectQuery (id :: String, count :: Int)
-expressiveSelectQuery =
-  let t = from testTable in
-  selectFrom testTable {id: t.id, count: t.count :+ 1} alwaysTrue
+filteredSelectQuery :: SelectQuery (id :: String) Unit
+filteredSelectQuery = do
+  t <- from testTable
+  select {id: t.id} (t.id :== "abc")
+
+expressiveSelectQuery :: SelectQuery (id :: String, count :: Int) Unit
+expressiveSelectQuery = do
+  t <- from testTable
+  select {id: t.id, count: t.count :+ 1} alwaysTrue
+
+simpleJoinSelectQuery :: SelectQuery (jId :: String, tId :: String, extra :: String) Unit
+simpleJoinSelectQuery = do
+  t <- from testTable
+  j <- join testChildTable (\j -> j.id :== t.id)
+  select {tId: t.id, jId: j.id, extra: j.extra} (t.id :/= "sdf")
+
+selfJoinSelectQuery :: SelectQuery (aId :: String, bId ::String) Unit
+selfJoinSelectQuery = do
+  a <- from testTable
+  b <- join testTable (\b -> b.id :== a.id)
+  select {aId: a.id, bId: b.id} alwaysTrue
 
 filteredUpdateQuery :: UpdateQuery
 filteredUpdateQuery =
-  let t = from testTable in
+  let t = columns testTable in
   update testTable {count: t.count :* 2} (t.id :== "abc")
 
 filteredDeleteQuery :: DeleteQuery
 filteredDeleteQuery =
-  let t = from testTable in
+  let t = columns testTable in
   deleteFrom testTable (t.id :== "abc")
 
 insertQuery :: InsertQuery
@@ -50,21 +69,26 @@ test :: Spec Unit
 test = do
   describeOnly "QueryDsl" do
 
-    it "createTableSql" do
-      createTableSql testTable `shouldEqual` ParameterizedSql
-        "create table test (id text not null, count integer not null, description text)" []
-
     it "simpleSelectQuery" do
       selectSql simpleSelectQuery `shouldEqual` ParameterizedSql
-        "select test.count, test.id from test" []
+        "select a.count, a.id from test as a" []
 
     it "filteredSelectQuery" do
       selectSql filteredSelectQuery `shouldEqual` ParameterizedSql
-        "select test.id from test where (test.id = ?)" [ c "abc" ]
+        "select a.id from test as a where (a.id = ?)" [ c "abc" ]
 
     it "expressiveSelectQuery" do
       selectSql expressiveSelectQuery `shouldEqual` ParameterizedSql
-        "select (test.count + ?) as count, test.id from test" [ c 1 ]
+        "select (a.count + ?) as count, a.id from test as a" [ c 1 ]
+
+    it "simpleJoinSelectQuery" do
+      selectSql simpleJoinSelectQuery `shouldEqual` ParameterizedSql
+        "select b.extra, b.id as jId, a.id as tId from test as a join child as b on (b.id = a.id) where (a.id <> ?)"
+        [ c "sdf" ]
+
+    it "selfJoinSelectQuery" do
+      selectSql selfJoinSelectQuery `shouldEqual` ParameterizedSql
+        "select a.id as aId, b.id as bId from test as a join test as b on (b.id = a.id)" []
 
     it "filteredDeleteQuery" do
       deleteSql filteredDeleteQuery `shouldEqual` ParameterizedSql
