@@ -71,7 +71,6 @@ class SqlType t where
   toConstant :: t -> Constant
 
 -- TODO: fromConstant!
--- todo: be more consistent wrt List vs Array
 
 instance sqlTypeString :: SqlType String where
   toConstant = StringConstant
@@ -396,8 +395,8 @@ type JoinedTables = List (Tuple AliasedTable (Expression Boolean))
 
 type FullSelectQuery = {
   rootTable :: AliasedTable,
-  joinedTables :: Array (Tuple AliasedTable (Expression Boolean)),
-  cols :: Array (Tuple ColumnName UntypedExpression),
+  joinedTables :: List (Tuple AliasedTable (Expression Boolean)),
+  cols :: List (Tuple ColumnName UntypedExpression),
   filter :: Expression Boolean
 }
 
@@ -424,8 +423,8 @@ selectSql query =
     toFull' rootTable joinedTables (SelectSelectQuery cols filter) =
       Right {
         rootTable,
-        joinedTables: Array.fromFoldable $ List.reverse joinedTables,
-        cols: Array.fromFoldable cols,
+        joinedTables: List.reverse joinedTables,
+        cols,
         filter
       }
     toFull' _ _ _ =
@@ -450,7 +449,7 @@ selectSql query =
           pure $ sql <> " as " <> columnNameSql cName
 
         fromClause = do
-          jc <- joinWith " " <$> traverse joinClause joinedTables
+          jc <- joinSpace <$> traverse joinClause joinedTables
           pure $ aliasSql rootTable <> jc
 
         joinClause (Tuple alias expr) = do
@@ -541,6 +540,9 @@ whereClauseSql (Expression AlwaysTrueExpr) = pure ""
 whereClauseSql expr = do
   e <- expressionSql' expr
   pure $ " where " <> e
+
+joinSpace :: forall f. Foldable f => f String -> String
+joinSpace = Array.fromFoldable >>> joinWith " "
 
 joinCsv :: forall f. Foldable f => f String -> String
 joinCsv = Array.fromFoldable >>> joinWith ", "
