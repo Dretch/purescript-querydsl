@@ -16,6 +16,7 @@ module QueryDsl (
   BinaryOperator,
   UnaryOperator,
   ParameterizedSql(..),
+  ErrorMessage,
   toExpression,
   alwaysTrue,
   makeTable,
@@ -192,6 +193,8 @@ type BinaryOperator a b input result =
   a -> b -> Expression result
 
 data ParameterizedSql = ParameterizedSql String (Array Constant)
+
+type ErrorMessage = String
 
 derive instance eqParameterizedSql :: Eq ParameterizedSql
 
@@ -400,11 +403,10 @@ type FullSelectQuery = {
   filter :: Expression Boolean
 }
 
-selectSql :: forall cols. SelectQuery cols Unit -> ParameterizedSql
-selectSql query =
-    case toFull query of
-      Left err -> ParameterizedSql err [] -- todo!
-      Right full -> uncurry ParameterizedSql $ runWriter $ toWriter full
+selectSql :: forall cols. SelectQuery cols Unit -> Either ErrorMessage ParameterizedSql
+selectSql query = do
+    full <- toFull query
+    Right $ uncurry ParameterizedSql $ runWriter $ toWriter full
   where
     toFull :: SelectQuery cols Unit -> Either String FullSelectQuery
     toFull (BindFromSelectQuery table tail) =
@@ -414,7 +416,7 @@ selectSql query =
     toFull _ =
       Left "SQL query is missing initial from-clause"
 
-    toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols Unit -> Either String FullSelectQuery
+    toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols Unit -> Either ErrorMessage FullSelectQuery
     toFull' rootTable joinedTables (BindJoinSelectQuery table tail expr) =
       let alias = makeAlias $ List.length joinedTables + 1
           inner = tail alias
@@ -465,14 +467,14 @@ makeAlias i =
     Just c -> TableName $ singleton c
     Nothing -> TableName $ "_" <> show i
 
-deleteSql :: DeleteQuery -> ParameterizedSql
+deleteSql :: DeleteQuery -> Either ErrorMessage ParameterizedSql
 deleteSql (DeleteQuery tName filter) =
   let Tuple sql parameters = runWriter $ whereClauseSql filter in
-  ParameterizedSql ("delete from " <> tableNameSql tName <> sql) parameters
+  Right $ ParameterizedSql ("delete from " <> tableNameSql tName <> sql) parameters
 
-insertSql :: InsertQuery -> ParameterizedSql
+insertSql :: InsertQuery -> Either ErrorMessage ParameterizedSql
 insertSql (InsertQuery tName columnValues) =
-  uncurry ParameterizedSql $ runWriter writeSql
+  Right $ uncurry ParameterizedSql $ runWriter writeSql
   where
     writeSql = do
       vs <- joinCsv <$> traverse (snd >>> constantSql) columnValues
@@ -480,9 +482,9 @@ insertSql (InsertQuery tName columnValues) =
 
     colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
 
-updateSql :: UpdateQuery -> ParameterizedSql
+updateSql :: UpdateQuery -> Either ErrorMessage ParameterizedSql
 updateSql (UpdateQuery tName columnValues filter) =
-  uncurry ParameterizedSql $ runWriter writeSql
+  Right $ uncurry ParameterizedSql $ runWriter writeSql
   where
     writeSql = do
       c <- colsSql
@@ -505,9 +507,9 @@ tableColumnNameSql :: TableName -> ColumnName -> String
 tableColumnNameSql tName cName =
   tableNameSql tName <> "." <> columnNameSql cName
 
-expressionSql :: forall result. Expression result -> ParameterizedSql
+expressionSql :: forall result. Expression result -> Either ErrorMessage ParameterizedSql
 expressionSql e =
-  uncurry ParameterizedSql $ runWriter (expressionSql' e)
+  Right $ uncurry ParameterizedSql $ runWriter (expressionSql' e)
 
 expressionSql' :: forall result. Expression result -> SqlWriter
 expressionSql' (Expression e) = untypedExpressionSql e
