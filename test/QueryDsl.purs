@@ -2,17 +2,17 @@ module Test.QueryDsl (test) where
 
 import Prelude hiding (join)
 
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import QueryDsl
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
+import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
 import Test.Spec (Spec, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
 
 c :: forall t. SqlType t => t -> Constant
 c = toConstant
-
--- todo: test invalid queries
 
 testTable :: Table _
 testTable = makeTable "test"
@@ -46,6 +46,15 @@ simpleJoinSelectQuery = do
   j <- join testChildTable (\j -> j.id :== t.id)
   select {tId: t.id, jId: j.id, extra: j.extra} (t.id :/= "sdf")
 
+selectQueryWithNoFrom :: SelectQuery (id :: String) Unit
+selectQueryWithNoFrom =
+  let t = columns testTable in
+  select {id: t.id} alwaysTrue
+
+selectQueryWithNoSelect :: SelectQuery (id :: String) Unit
+selectQueryWithNoSelect =
+  void $ from testTable
+
 selfJoinSelectQuery :: SelectQuery (aId :: String, bId ::String) Unit
 selfJoinSelectQuery = do
   a <- from testTable
@@ -70,37 +79,43 @@ test = do
   describeOnly "QueryDsl" do
 
     it "simpleSelectQuery" do
-      selectSql simpleSelectQuery `shouldEqual` ParameterizedSql
+      selectSql simpleSelectQuery `shouldBeSql` ParameterizedSql
         "select a.count, a.id from test as a" []
 
     it "filteredSelectQuery" do
-      selectSql filteredSelectQuery `shouldEqual` ParameterizedSql
+      selectSql filteredSelectQuery `shouldBeSql` ParameterizedSql
         "select a.id from test as a where (a.id = ?)" [ c "abc" ]
 
     it "expressiveSelectQuery" do
-      selectSql expressiveSelectQuery `shouldEqual` ParameterizedSql
+      selectSql expressiveSelectQuery `shouldBeSql` ParameterizedSql
         "select (a.count + ?) as count, a.id from test as a" [ c 1 ]
 
     it "simpleJoinSelectQuery" do
-      selectSql simpleJoinSelectQuery `shouldEqual` ParameterizedSql
+      selectSql simpleJoinSelectQuery `shouldBeSql` ParameterizedSql
         "select b.extra, b.id as jId, a.id as tId from test as a join child as b on (b.id = a.id) where (a.id <> ?)"
         [ c "sdf" ]
 
     it "selfJoinSelectQuery" do
-      selectSql selfJoinSelectQuery `shouldEqual` ParameterizedSql
+      selectSql selfJoinSelectQuery `shouldBeSql` ParameterizedSql
         "select a.id as aId, b.id as bId from test as a join test as b on (b.id = a.id)" []
 
+    it "selectQueryWithNoFrom" do
+      selectSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial from-clause"
+
+    it "selectQueryWithNoSelect" do
+      selectSql selectQueryWithNoSelect `shouldEqual` Left "SQL query is missing initial from-clause"
+
     it "filteredDeleteQuery" do
-      deleteSql filteredDeleteQuery `shouldEqual` ParameterizedSql
+      deleteSql filteredDeleteQuery `shouldBeSql` ParameterizedSql
         "delete from test where (test.id = ?)" [ c "abc" ]
 
     it "insertQuery" do
-      insertSql insertQuery `shouldEqual` ParameterizedSql
+      insertSql insertQuery `shouldBeSql` ParameterizedSql
         "insert into test (id, description, count) values (?, ?, ?)"
         [ c "abc", NullConstant, c 123 ]
 
     it "filteredUpdateQuery" do
-      updateSql filteredUpdateQuery `shouldEqual` ParameterizedSql
+      updateSql filteredUpdateQuery `shouldBeSql` ParameterizedSql
         "update test set count = (test.count * ?) where (test.id = ?)"
         [ c 2, c "abc" ]
 
