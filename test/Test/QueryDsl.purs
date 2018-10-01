@@ -1,6 +1,6 @@
 module Test.QueryDsl (test) where
 
-import Prelude hiding (join)
+import Prelude (Unit, bind, discard, void, ($))
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))

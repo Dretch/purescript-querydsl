@@ -1,10 +1,10 @@
 module Test.QueryDsl.Expressions (test) where
 
-import QueryDsl
-import QueryDsl.Expressions
+import QueryDsl (class SqlType, Constant(..), ParameterizedSql(..), expressionSql, toConstant)
+import QueryDsl.Expressions (is, isNot, isNotNull, isNull, negate, not, (:&&), (:*), (:+), (:-), (:/), (:/=), (:<), (:<=), (:==), (:>), (:>=), (:||))
 
 import Data.Maybe (Maybe(..))
-import Prelude hiding (not, negate)
+import Prelude (Unit, discard)
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.Spec (Spec, describe, it)
 
