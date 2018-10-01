@@ -1,6 +1,7 @@
 module QueryDsl (
   class SqlType,
   toConstant,
+  fromConstant,
   Constant(..),
   Table,
   TypedColumn,
@@ -70,25 +71,35 @@ import Type.Row (class RowToList, Cons, Nil, kind RowList, RLProxy(..), RProxy(.
 
 class SqlType t where
   toConstant :: t -> Constant
-
--- TODO: fromConstant!
+  fromConstant :: Constant -> Maybe t
 
 instance sqlTypeString :: SqlType String where
   toConstant = StringConstant
+  fromConstant (StringConstant s) = Just s
+  fromConstant _ = Nothing
 
 instance sqlTypeInt :: SqlType Int where
   toConstant = IntConstant
+  fromConstant (IntConstant n) = Just n
+  fromConstant _ = Nothing
 
 instance sqlTypeNumber :: SqlType Number where
   toConstant = NumberConstant
+  fromConstant (NumberConstant n) = Just n
+  fromConstant _ = Nothing
 
 instance sqlTypeBoolean :: SqlType Boolean where
   toConstant true = IntConstant 1
   toConstant false = IntConstant 0
+  fromConstant (IntConstant 0) = Just false
+  fromConstant (IntConstant _) = Just true
+  fromConstant _ = Nothing
 
 instance sqlTypeMaybe :: SqlType a => SqlType (Maybe a) where
   toConstant (Just x) = toConstant x
   toConstant Nothing = NullConstant
+  fromConstant NullConstant = Just Nothing
+  fromConstant c = Just <$> fromConstant c
 
 newtype TableName = TableName String
 

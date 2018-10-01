@@ -78,22 +78,53 @@ sqlType :: Spec Unit
 sqlType = do
   describe "SqlType" do
 
-    it "String" do
-      toConstant "abc" `shouldEqual` StringConstant "abc"
+    describe "String" do
+      it "toConstant" do
+        toConstant "abc" `shouldEqual` StringConstant "abc"
+      it "fromConstant" do
+        fromConstant (StringConstant "abc") `shouldEqual` Just "abc"
+        fromConstant (IntConstant 123) `shouldEqual` Nothing :: Maybe String
+        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe String
+        fromConstant NullConstant `shouldEqual` Nothing :: Maybe String
 
-    it "Int" do
-      toConstant 123 `shouldEqual` IntConstant 123
+    describe "Int" do
+      it "toConstant" do
+        toConstant 123 `shouldEqual` IntConstant 123
+      it "fromConstant" do
+        fromConstant (IntConstant 123) `shouldEqual` Just 123
+        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
+        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Int
+        fromConstant NullConstant `shouldEqual` Nothing :: Maybe Int
 
-    it "Number" do
-      toConstant 123.456 `shouldEqual` NumberConstant 123.456
+    describe "Number" do
+      it "toConstant" do
+        toConstant 123.456 `shouldEqual` NumberConstant 123.456
+      it "fromConstant" do
+        fromConstant (NumberConstant 123.0) `shouldEqual` Just 123.0
+        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Number
+        fromConstant (IntConstant 123) `shouldEqual` Nothing :: Maybe Number
+        fromConstant NullConstant `shouldEqual` Nothing :: Maybe Number
 
-    it "Boolean" do
-      toConstant false `shouldEqual` IntConstant 0
-      toConstant true `shouldEqual` IntConstant 1
+    describe "Boolean" do
+      it "toConstant" do
+        toConstant false `shouldEqual` IntConstant 0
+        toConstant true `shouldEqual` IntConstant 1
+      it "fromConstant" do
+        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant (IntConstant 0) `shouldEqual` Just false
+        fromConstant (IntConstant 1) `shouldEqual` Just true
+        fromConstant (IntConstant 42) `shouldEqual` Just true
+        fromConstant NullConstant `shouldEqual` Nothing :: Maybe Boolean
 
-    it "Maybe" do
-      toConstant (Nothing :: Maybe Int) `shouldEqual` NullConstant
-      toConstant (Just 1) `shouldEqual` IntConstant 1
+    describe "Maybe" do
+      it "toConstant" do
+        toConstant (Nothing :: Maybe Int) `shouldEqual` NullConstant
+        toConstant (Just 1) `shouldEqual` IntConstant 1
+      it "fromConstant" do
+        fromConstant NullConstant `shouldEqual` Just (Nothing :: Maybe Int)
+        fromConstant (IntConstant 123) `shouldEqual` Just (Just 123)
+        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
 
 test :: Spec Unit
 test = do
