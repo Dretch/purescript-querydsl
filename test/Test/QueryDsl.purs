@@ -8,7 +8,7 @@ import QueryDsl
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
-import Test.Spec (Spec, describeOnly, it)
+import Test.Spec (Spec, describe, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
 
 c :: forall t. SqlType t => t -> Constant
@@ -74,6 +74,27 @@ filteredDeleteQuery =
 insertQuery :: InsertQuery
 insertQuery = insertInto testTable {id: "abc", count: 123, description: Nothing :: Maybe String}
 
+sqlType :: Spec Unit
+sqlType = do
+  describe "SqlType" do
+
+    it "String" do
+      toConstant "abc" `shouldEqual` StringConstant "abc"
+
+    it "Int" do
+      toConstant 123 `shouldEqual` IntConstant 123
+
+    it "Number" do
+      toConstant 123.456 `shouldEqual` NumberConstant 123.456
+
+    it "Boolean" do
+      toConstant false `shouldEqual` IntConstant 0
+      toConstant true `shouldEqual` IntConstant 1
+
+    it "Maybe" do
+      toConstant (Nothing :: Maybe Int) `shouldEqual` NullConstant
+      toConstant (Just 1) `shouldEqual` IntConstant 1
+
 test :: Spec Unit
 test = do
   describeOnly "QueryDsl" do
@@ -119,4 +140,5 @@ test = do
         "update test set count = (test.count * ?) where (test.id = ?)"
         [ c 2, c "abc" ]
 
+    sqlType
     Expressions.test
