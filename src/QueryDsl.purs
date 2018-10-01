@@ -1,6 +1,5 @@
 module QueryDsl (
   class SqlType,
-  sqlTypeSyntax,
   toConstant,
   Constant(..),
   Table,
@@ -22,7 +21,9 @@ module QueryDsl (
   makeTable,
   addColumn,
   column,
-  selectFrom,
+  from,
+  join,
+  select,
   update,
   insertInto,
   deleteFrom,
@@ -41,8 +42,7 @@ module QueryDsl (
   prefixOperator,
   postfixOperator,
   binaryOperator,
-  from,
-  createTableSql,
+  columns,
   selectSql,
   insertSql,
   updateSql,
@@ -53,61 +53,94 @@ import Prelude
 
 import Control.Monad.Writer (Writer, runWriter, tell)
 import Data.Array as Array
+import Data.Either (Either(..))
 import Data.Foldable (class Foldable)
 import Data.List (List(..), snoc, (:))
 import Data.List as List
 import Data.Maybe (Maybe(..))
 import Data.String (joinWith)
+import Data.String.CodeUnits (charAt, singleton)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst, snd, uncurry)
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
-import Type.Proxy (Proxy(..))
 import Type.Row (class RowToList, Cons, Nil, kind RowList, RLProxy(..), RProxy(..))
 
 class SqlType t where
-  sqlTypeSyntax :: Proxy t -> { typ :: String, nullable :: Boolean }
   toConstant :: t -> Constant
 
 -- TODO: fromConstant!
+-- todo: be more consistent wrt List vs Array
 
 instance sqlTypeString :: SqlType String where
-  sqlTypeSyntax _ = { typ: "text", nullable: false }
   toConstant = StringConstant
 
 instance sqlTypeInt :: SqlType Int where
-  sqlTypeSyntax _ = { typ: "integer", nullable: false }
   toConstant = IntConstant
 
 instance sqlTypeNumber :: SqlType Number where
-  sqlTypeSyntax _ = { typ: "real", nullable: false }
   toConstant = NumberConstant
 
 instance sqlTypeBoolean :: SqlType Boolean where
-  sqlTypeSyntax _ = { typ: "integer", nullable: false }
   toConstant true = IntConstant 1
   toConstant false = IntConstant 0
 
 instance sqlTypeMaybe :: SqlType a => SqlType (Maybe a) where
-  sqlTypeSyntax _ = { typ: (sqlTypeSyntax $ Proxy :: Proxy a).typ, nullable: true }
   toConstant (Just x) = toConstant x
   toConstant Nothing = NullConstant
 
 newtype TableName = TableName String
 
+derive newtype instance eqTableName :: Eq TableName
+
 newtype ColumnName = ColumnName String
 
-data Table (cols :: #Type) = Table TableName (List UnTypedColumn) (Record cols)
+derive newtype instance eqColumnName :: Eq ColumnName
 
-data UnTypedColumn = UnTypedColumn TableName ColumnName String -- ???
+data Table (cols :: #Type) = Table TableName (List UnTypedColumn) (TableName -> Record cols)
+
+data UnTypedColumn = UnTypedColumn TableName ColumnName
 
 newtype TypedColumn (name :: Symbol) typ = TypedColumn UnTypedColumn
 
-newtype Column (name :: Symbol) typ = Column (SProxy name)
+data Column (name :: Symbol) typ = Column
 
--- | A query that select data from a table
-data SelectQuery (results :: #Type) = SelectQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
+-- | A query that selects data from a table
+data SelectQuery (results :: #Type) a =
+    FromSelectQuery TableName (TableName -> a)
+  | JoinSelectQuery TableName (TableName -> a) (TableName -> Expression Boolean)
+  | BindFromSelectQuery TableName (TableName -> SelectQuery results a)
+  | BindJoinSelectQuery TableName (TableName -> SelectQuery results a) (TableName -> Expression Boolean)
+  | SelectSelectQuery (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
+  | InvalidSelectQuery
+
+-- todo: add some quickcheck tests for these for the typeclass laws!
+
+instance functorSelectQuery :: Functor (SelectQuery results) where
+  map f (FromSelectQuery tName a) = FromSelectQuery tName (a >>> f)
+  map f (JoinSelectQuery tName a expr) = JoinSelectQuery tName (a >>> f) expr
+  map f (SelectSelectQuery cols filter) = SelectSelectQuery cols filter
+  map f (BindFromSelectQuery tName tail) = BindFromSelectQuery tName (tail >>> map f)
+  map f (BindJoinSelectQuery tName tail expr) = BindJoinSelectQuery tName (tail >>> map f) expr
+  map f InvalidSelectQuery = InvalidSelectQuery
+
+instance applySelectQuery :: Apply (SelectQuery results) where
+  apply _ _ = InvalidSelectQuery
+
+instance bindSelectQuery :: Bind (SelectQuery results) where
+  bind (FromSelectQuery tName a) cmd =
+    BindFromSelectQuery tName (\tName' -> cmd (a tName'))
+  bind (JoinSelectQuery tName a expr) cmd =
+    BindJoinSelectQuery tName (\tName' -> cmd (a tName')) expr
+  bind (SelectSelectQuery cols filter) cmd =
+    InvalidSelectQuery
+  bind (BindFromSelectQuery tName f) cmd =
+    InvalidSelectQuery
+  bind (BindJoinSelectQuery tName f expr) cmd =
+    InvalidSelectQuery
+  bind InvalidSelectQuery cmd =
+    InvalidSelectQuery
 
 data UpdateQuery = UpdateQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
 
@@ -170,7 +203,7 @@ alwaysTrue :: Expression Boolean
 alwaysTrue = Expression AlwaysTrueExpr
 
 makeTable :: String -> Table ()
-makeTable name = Table (TableName name) Nil {}
+makeTable name = Table (TableName name) Nil (const {})
 
 addColumn :: forall name typ oldCols newCols.
   SqlType typ =>
@@ -180,18 +213,29 @@ addColumn :: forall name typ oldCols newCols.
   Table oldCols ->
   Column name typ ->
   Table newCols
-addColumn (Table tName cols rec) (Column cName) =
-  let {typ, nullable} = sqlTypeSyntax (Proxy :: Proxy typ)
-      null = if nullable then "" else " not null"
-      col = UnTypedColumn tName (ColumnName $ reflectSymbol cName) (typ <> null)
-      typedCol = TypedColumn col
-  in Table tName (snoc cols col) (Record.insert cName typedCol rec)
+addColumn (Table tName cols makeRec) Column =
+  Table tName (snoc cols $ UnTypedColumn tName cName) makeRec'
+  where
+    cName = ColumnName $ reflectSymbol cNameProxy
+
+    cNameProxy = SProxy :: SProxy name
+
+    makeRec' tName' =
+      let col' = TypedColumn $ UnTypedColumn tName' cName in
+      Record.insert cNameProxy col' (makeRec tName')
 
 column :: forall name typ. Column name typ
-column = Column SProxy
+column = Column
 
-from :: forall cols. Table cols -> Record cols
-from (Table name cols rec) = rec
+columns :: forall cols. Table cols -> Record cols
+columns (Table name cols rec) = rec name
+
+from :: forall cols results. Table cols -> SelectQuery results (Record cols)
+from (Table tName _ cols) = FromSelectQuery tName cols
+
+join :: forall cols results. Table cols -> (Record cols -> Expression Boolean) -> SelectQuery results (Record cols)
+join (Table tName _ cols) expr =
+  JoinSelectQuery tName cols (\tName' -> expr $ cols tName')
 
 class SelectExpressions (exprs :: #Type) (result :: #Type) | exprs -> result where
   getSelectExpressions :: Record exprs -> List (Tuple ColumnName UntypedExpression)
@@ -232,9 +276,8 @@ instance applySelectExpressionsCons
           (tailExprs :: Record exprsRTail)
           (RLProxy :: RLProxy resultsRLTail)
 
-selectFrom :: forall cols exprs results. SelectExpressions exprs results => Table cols -> Record exprs -> Expression Boolean -> SelectQuery results
-selectFrom (Table tName _ _) exprs filter =
-  SelectQuery tName (getSelectExpressions exprs) filter
+select :: forall exprs results. SelectExpressions exprs results => Record exprs -> Expression Boolean -> SelectQuery results Unit
+select exprs filter = SelectSelectQuery (getSelectExpressions exprs) filter
 
 class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
   getInsertExpressions :: Record exprs -> List (Tuple ColumnName Constant)
@@ -325,7 +368,7 @@ else instance applyUpdateExpressionsCons
 
 update :: forall cols exprs. UpdateExpressions cols exprs => Table cols -> Record exprs -> Expression Boolean -> UpdateQuery
 update (Table tName _ cols) exprs filter =
-  UpdateQuery tName (getUpdateExpressions cols exprs) filter
+  UpdateQuery tName (getUpdateExpressions (cols tName) exprs) filter
 
 deleteFrom :: forall cols. Table cols -> Expression Boolean -> DeleteQuery
 deleteFrom (Table tName  _ _) filter' = DeleteQuery tName filter'
@@ -344,30 +387,84 @@ binaryOperator op a b = Expression $ BinaryOperatorExpr op (untypeExpression $ t
 
 type SqlWriter = Writer (Array Constant) String
 
-createTableSql :: forall cols. Table cols -> ParameterizedSql
-createTableSql (Table tName cols rec) =
-  ParameterizedSql ("create table " <> tableNameSql tName <> " (" <> columnsSql <> ")") []
-  where
-    columnsSql = joinCsv $ columnSql <$> cols
-    columnSql (UnTypedColumn _ cName createSql) =
-      columnNameSql cName <> " " <> createSql
+type AliasedTable = {
+  name :: TableName,
+  alias :: TableName
+}
 
-selectSql :: forall cols. SelectQuery cols -> ParameterizedSql
-selectSql (SelectQuery tName cols filter) =
-  uncurry ParameterizedSql $ runWriter writeSql
+type JoinedTables = List (Tuple AliasedTable (Expression Boolean))
+
+type FullSelectQuery = {
+  rootTable :: AliasedTable,
+  joinedTables :: Array (Tuple AliasedTable (Expression Boolean)),
+  cols :: Array (Tuple ColumnName UntypedExpression),
+  filter :: Expression Boolean
+}
+
+selectSql :: forall cols. SelectQuery cols Unit -> ParameterizedSql
+selectSql query =
+    case toFull query of
+      Left err -> ParameterizedSql err [] -- todo!
+      Right full -> uncurry ParameterizedSql $ runWriter $ toWriter full
   where
-    writeSql = do
+    toFull :: SelectQuery cols Unit -> Either String FullSelectQuery
+    toFull (BindFromSelectQuery table tail) =
+      let alias = makeAlias 0
+          inner = tail alias
+      in toFull' { name: table, alias } Nil inner
+    toFull _ =
+      Left "SQL query is missing initial from-clause"
+
+    toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols Unit -> Either String FullSelectQuery
+    toFull' rootTable joinedTables (BindJoinSelectQuery table tail expr) =
+      let alias = makeAlias $ List.length joinedTables + 1
+          inner = tail alias
+          joinTable = Tuple { name: table, alias } $ expr alias
+      in toFull' rootTable (joinTable : joinedTables) inner
+    toFull' rootTable joinedTables (SelectSelectQuery cols filter) =
+      Right {
+        rootTable,
+        joinedTables: Array.fromFoldable $ List.reverse joinedTables,
+        cols: Array.fromFoldable cols,
+        filter
+      }
+    toFull' _ _ _ =
+      Left "SQL query is missing join or select clause"
+
+    toWriter :: FullSelectQuery -> SqlWriter
+    toWriter { rootTable, joinedTables, cols, filter } = do
       sc <- selectClause
+      fc <- fromClause
       wc <- whereClauseSql filter
-      pure $ "select " <> sc <> " from " <> tableNameSql tName <> wc
+      pure $ "select " <> sc <> " from " <> fc <> wc
+      where
+        selectClause = joinCsv <$> traverse selectCol cols
 
-    selectClause = joinCsv <$> traverse selectCol cols
+        selectCol (Tuple cName (ColumnExpr (UnTypedColumn tName' cName'))) =
+          let start = tableColumnNameSql tName' cName'
+          in pure $ if cName == cName'
+                      then start
+                      else start <> " as " <> columnNameSql cName
+        selectCol (Tuple cName expr) = do
+          sql <- untypedExpressionSql expr
+          pure $ sql <> " as " <> columnNameSql cName
 
-    selectCol (Tuple _ (ColumnExpr (UnTypedColumn tName' cName _))) =
-      pure $ tableColumnNameSql tName' cName
-    selectCol (Tuple cName expr) = do
-      sql <- untypedExpressionSql expr
-      pure $ sql <> " as " <> columnNameSql cName
+        fromClause = do
+          jc <- joinWith " " <$> traverse joinClause joinedTables
+          pure $ aliasSql rootTable <> jc
+
+        joinClause (Tuple alias expr) = do
+          e <- expressionSql' expr
+          pure $ " join " <> aliasSql alias <> " on " <> e
+
+        aliasSql { name, alias } =
+          tableNameSql name <> " as " <> tableNameSql alias
+
+makeAlias :: Int -> TableName
+makeAlias i =
+  case charAt i "abcdefghijklmnopqrstuvwxyz" of
+    Just c -> TableName $ singleton c
+    Nothing -> TableName $ "_" <> show i
 
 deleteSql :: DeleteQuery -> ParameterizedSql
 deleteSql (DeleteQuery tName filter) =
@@ -429,7 +526,7 @@ untypedExpressionSql (BinaryOperatorExpr op a b) = do
   pure $ "(" <> sqlA <> " " <> op <> " " <> sqlB <> ")"
 untypedExpressionSql (ConstantExpr c) =
   constantSql c
-untypedExpressionSql (ColumnExpr (UnTypedColumn tName cName _)) =
+untypedExpressionSql (ColumnExpr (UnTypedColumn tName cName)) =
   pure $ tableColumnNameSql tName cName
 untypedExpressionSql AlwaysTrueExpr =
   pure "(1 = 1)"
