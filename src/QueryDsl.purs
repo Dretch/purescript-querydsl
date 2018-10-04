@@ -45,10 +45,8 @@ module QueryDsl (
   postfixOperator,
   binaryOperator,
   columns,
-  selectSql,
-  insertSql,
-  updateSql,
-  deleteSql,
+  class Query,
+  toSql,
   expressionSql) where
 
 import Prelude
@@ -156,7 +154,7 @@ instance bindSelectQuery :: Bind (SelectQuery results) where
     InvalidSelectQuery
 
 instance eqSelectQuery :: Eq (SelectQuery results a) where
-  eq a b = selectSql a == selectSql b
+  eq a b = toSql a == toSql b
 
 instance arbitrarySelectQuery :: Arbitrary a => Arbitrary (SelectQuery results a) where
 
@@ -427,6 +425,9 @@ postfixOperator op a = Expression $ PostfixOperatorExpr op (untypeExpression $ t
 binaryOperator :: forall a b input result. String -> BinaryOperator a b input result
 binaryOperator op a b = Expression $ BinaryOperatorExpr op (untypeExpression $ toExpression a) (untypeExpression $ toExpression b)
 
+class Query t where
+  toSql :: t -> Either ErrorMessage ParameterizedSql
+
 type SqlWriter = Writer (Array Constant) String
 
 type AliasedTable = {
@@ -443,63 +444,63 @@ type FullSelectQuery = {
   filter :: Expression Boolean
 }
 
-selectSql :: forall cols a. SelectQuery cols a -> Either ErrorMessage ParameterizedSql
-selectSql query = do
-    full <- toFull query
-    Right $ uncurry ParameterizedSql $ runWriter $ toWriter full
-  where
-    toFull :: SelectQuery cols a -> Either String FullSelectQuery
-    toFull (BindFromSelectQuery table tail) =
-      let alias = makeAlias 0
-          inner = tail alias
-      in toFull' { name: table, alias } Nil inner
-    toFull _ =
-      Left "SQL query is missing initial from-clause"
+instance querySelectQuery :: Query (SelectQuery cols a) where
+  toSql query = do
+      full <- toFull query
+      Right $ uncurry ParameterizedSql $ runWriter $ toWriter full
+    where
+      toFull :: SelectQuery cols a -> Either String FullSelectQuery
+      toFull (BindFromSelectQuery table tail) =
+        let alias = makeAlias 0
+            inner = tail alias
+        in toFull' { name: table, alias } Nil inner
+      toFull _ =
+        Left "SQL query is missing initial from-clause"
 
-    toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols a -> Either ErrorMessage FullSelectQuery
-    toFull' rootTable joinedTables (BindJoinSelectQuery table tail expr) =
-      let alias = makeAlias $ List.length joinedTables + 1
-          inner = tail alias
-          joinTable = Tuple { name: table, alias } $ expr alias
-      in toFull' rootTable (joinTable : joinedTables) inner
-    toFull' rootTable joinedTables (SelectSelectQuery cols filter) =
-      Right {
-        rootTable,
-        joinedTables: List.reverse joinedTables,
-        cols,
-        filter
-      }
-    toFull' _ _ _ =
-      Left "SQL query is missing join or select clause"
+      toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols a -> Either ErrorMessage FullSelectQuery
+      toFull' rootTable joinedTables (BindJoinSelectQuery table tail expr) =
+        let alias = makeAlias $ List.length joinedTables + 1
+            inner = tail alias
+            joinTable = Tuple { name: table, alias } $ expr alias
+        in toFull' rootTable (joinTable : joinedTables) inner
+      toFull' rootTable joinedTables (SelectSelectQuery cols filter) =
+        Right {
+          rootTable,
+          joinedTables: List.reverse joinedTables,
+          cols,
+          filter
+        }
+      toFull' _ _ _ =
+        Left "SQL query is missing join or select clause"
 
-    toWriter :: FullSelectQuery -> SqlWriter
-    toWriter { rootTable, joinedTables, cols, filter } = do
-      sc <- selectClause
-      fc <- fromClause
-      wc <- whereClauseSql filter
-      pure $ "select " <> sc <> " from " <> fc <> wc
-      where
-        selectClause = joinCsv <$> traverse selectCol cols
+      toWriter :: FullSelectQuery -> SqlWriter
+      toWriter { rootTable, joinedTables, cols, filter } = do
+        sc <- selectClause
+        fc <- fromClause
+        wc <- whereClauseSql filter
+        pure $ "select " <> sc <> " from " <> fc <> wc
+        where
+          selectClause = joinCsv <$> traverse selectCol cols
 
-        selectCol (Tuple cName (ColumnExpr (UnTypedColumn tName' cName'))) =
-          let start = tableColumnNameSql tName' cName'
-          in pure $ if cName == cName'
-                      then start
-                      else start <> " as " <> columnNameSql cName
-        selectCol (Tuple cName expr) = do
-          sql <- untypedExpressionSql expr
-          pure $ sql <> " as " <> columnNameSql cName
+          selectCol (Tuple cName (ColumnExpr (UnTypedColumn tName' cName'))) =
+            let start = tableColumnNameSql tName' cName'
+            in pure $ if cName == cName'
+                        then start
+                        else start <> " as " <> columnNameSql cName
+          selectCol (Tuple cName expr) = do
+            sql <- untypedExpressionSql expr
+            pure $ sql <> " as " <> columnNameSql cName
 
-        fromClause = do
-          jc <- joinSpace <$> traverse joinClause joinedTables
-          pure $ aliasSql rootTable <> jc
+          fromClause = do
+            jc <- joinSpace <$> traverse joinClause joinedTables
+            pure $ aliasSql rootTable <> jc
 
-        joinClause (Tuple alias expr) = do
-          e <- expressionSql' expr
-          pure $ " join " <> aliasSql alias <> " on " <> e
+          joinClause (Tuple alias expr) = do
+            e <- expressionSql' expr
+            pure $ " join " <> aliasSql alias <> " on " <> e
 
-        aliasSql { name, alias } =
-          tableNameSql name <> " as " <> tableNameSql alias
+          aliasSql { name, alias } =
+            tableNameSql name <> " as " <> tableNameSql alias
 
 makeAlias :: Int -> TableName
 makeAlias i =
@@ -507,35 +508,35 @@ makeAlias i =
     Just c -> TableName $ singleton c
     Nothing -> TableName $ "_" <> show i
 
-deleteSql :: DeleteQuery -> Either ErrorMessage ParameterizedSql
-deleteSql (DeleteQuery tName filter) =
-  let Tuple sql parameters = runWriter $ whereClauseSql filter in
-  Right $ ParameterizedSql ("delete from " <> tableNameSql tName <> sql) parameters
+instance queryDeleteQuery :: Query DeleteQuery where
+  toSql (DeleteQuery tName filter) =
+    let Tuple sql parameters = runWriter $ whereClauseSql filter in
+    Right $ ParameterizedSql ("delete from " <> tableNameSql tName <> sql) parameters
 
-insertSql :: InsertQuery -> Either ErrorMessage ParameterizedSql
-insertSql (InsertQuery tName columnValues) =
-  Right $ uncurry ParameterizedSql $ runWriter writeSql
-  where
-    writeSql = do
-      vs <- joinCsv <$> traverse (snd >>> constantSql) columnValues
-      pure $ "insert into " <> tableNameSql tName <> " (" <> colsSql <> ") values (" <> vs <> ")"
+instance queryInsertQuery :: Query InsertQuery where
+  toSql (InsertQuery tName columnValues) =
+    Right $ uncurry ParameterizedSql $ runWriter writeSql
+    where
+      writeSql = do
+        vs <- joinCsv <$> traverse (snd >>> constantSql) columnValues
+        pure $ "insert into " <> tableNameSql tName <> " (" <> colsSql <> ") values (" <> vs <> ")"
 
-    colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
+      colsSql = joinCsv $ (fst >>> columnNameSql) <$> columnValues
 
-updateSql :: UpdateQuery -> Either ErrorMessage ParameterizedSql
-updateSql (UpdateQuery tName columnValues filter) =
-  Right $ uncurry ParameterizedSql $ runWriter writeSql
-  where
-    writeSql = do
-      c <- colsSql
-      wc <- whereClauseSql filter
-      pure $ "update " <> tableNameSql tName <> " set " <> c <> wc
+instance queryUpdateQuery :: Query UpdateQuery where
+  toSql (UpdateQuery tName columnValues filter) =
+    Right $ uncurry ParameterizedSql $ runWriter writeSql
+    where
+      writeSql = do
+        c <- colsSql
+        wc <- whereClauseSql filter
+        pure $ "update " <> tableNameSql tName <> " set " <> c <> wc
 
-    colsSql = joinCsv <$> traverse colSql columnValues
+      colsSql = joinCsv <$> traverse colSql columnValues
 
-    colSql (Tuple cName expr) = do
-      e <- untypedExpressionSql expr
-      pure $ columnNameSql cName <> " = " <> e
+      colSql (Tuple cName expr) = do
+        e <- untypedExpressionSql expr
+        pure $ columnNameSql cName <> " = " <> e
 
 tableNameSql :: TableName -> String
 tableNameSql (TableName name) = name -- TODO: quote if neccessary
