@@ -144,43 +144,43 @@ test = do
   describeOnly "QueryDsl" do
 
     it "simpleSelectQuery" do
-      selectSql simpleSelectQuery `shouldBeSql` ParameterizedSql
+      toSql simpleSelectQuery `shouldBeSql` ParameterizedSql
         "select a.count, a.id from test as a" []
 
     it "filteredSelectQuery" do
-      selectSql filteredSelectQuery `shouldBeSql` ParameterizedSql
+      toSql filteredSelectQuery `shouldBeSql` ParameterizedSql
         "select a.id from test as a where (a.id = ?)" [ c "abc" ]
 
     it "expressiveSelectQuery" do
-      selectSql expressiveSelectQuery `shouldBeSql` ParameterizedSql
+      toSql expressiveSelectQuery `shouldBeSql` ParameterizedSql
         "select (a.count + ?) as count, a.id from test as a" [ c 1 ]
 
     it "simpleJoinSelectQuery" do
-      selectSql simpleJoinSelectQuery `shouldBeSql` ParameterizedSql
+      toSql simpleJoinSelectQuery `shouldBeSql` ParameterizedSql
         "select b.extra, b.id as jId, a.id as tId from test as a join child as b on (b.id = a.id) where (a.id <> ?)"
         [ c "sdf" ]
 
     it "selfJoinSelectQuery" do
-      selectSql selfJoinSelectQuery `shouldBeSql` ParameterizedSql
+      toSql selfJoinSelectQuery `shouldBeSql` ParameterizedSql
         "select a.id as aId, b.id as bId from test as a join test as b on (b.id = a.id)" []
 
     it "selectQueryWithNoFrom" do
-      selectSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial from-clause"
+      toSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial from-clause"
 
     it "selectQueryWithNoSelect" do
-      selectSql selectQueryWithNoSelect `shouldEqual` Left "SQL query is missing initial from-clause"
+      toSql selectQueryWithNoSelect `shouldEqual` Left "SQL query is missing initial from-clause"
 
     it "filteredDeleteQuery" do
-      deleteSql filteredDeleteQuery `shouldBeSql` ParameterizedSql
+      toSql filteredDeleteQuery `shouldBeSql` ParameterizedSql
         "delete from test where (test.id = ?)" [ c "abc" ]
 
     it "insertQuery" do
-      insertSql insertQuery `shouldBeSql` ParameterizedSql
+      toSql insertQuery `shouldBeSql` ParameterizedSql
         "insert into test (id, description, count) values (?, ?, ?)"
         [ c "abc", NullConstant, c 123 ]
 
     it "filteredUpdateQuery" do
-      updateSql filteredUpdateQuery `shouldBeSql` ParameterizedSql
+      toSql filteredUpdateQuery `shouldBeSql` ParameterizedSql
         "update test set count = (test.count * ?) where (test.id = ?)"
         [ c 2, c "abc" ]
 
