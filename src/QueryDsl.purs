@@ -60,13 +60,17 @@ import Data.Foldable (class Foldable)
 import Data.List (List(..), snoc, (:))
 import Data.List as List
 import Data.Maybe (Maybe(..))
+import Data.NonEmpty ((:|))
 import Data.String (joinWith)
 import Data.String.CodeUnits (charAt, singleton)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst, snd, uncurry)
 import Prim.Row (class Cons, class Lacks)
+import Random.LCG as LCG
 import Record as Record
+import Test.QuickCheck.Arbitrary (class Arbitrary, arbitrary)
+import Test.QuickCheck.Gen as Gen
 import Type.Row (class RowToList, Cons, Nil, kind RowList, RLProxy(..), RProxy(..))
 
 class SqlType t where
@@ -126,8 +130,6 @@ data SelectQuery (results :: #Type) a =
   | SelectSelectQuery (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
   | InvalidSelectQuery
 
--- todo: add some quickcheck tests for these for the typeclass laws!
-
 instance functorSelectQuery :: Functor (SelectQuery results) where
   map f (FromSelectQuery tName a) = FromSelectQuery tName (a >>> f)
   map f (JoinSelectQuery tName a expr) = JoinSelectQuery tName (a >>> f) expr
@@ -147,11 +149,38 @@ instance bindSelectQuery :: Bind (SelectQuery results) where
   bind (SelectSelectQuery cols filter) cmd =
     InvalidSelectQuery
   bind (BindFromSelectQuery tName f) cmd =
-    InvalidSelectQuery
+    BindFromSelectQuery tName (\tName' -> f tName' >>= cmd)
   bind (BindJoinSelectQuery tName f expr) cmd =
-    InvalidSelectQuery
+    BindJoinSelectQuery tName (\tName' -> f tName' >>= cmd) expr
   bind InvalidSelectQuery cmd =
     InvalidSelectQuery
+
+instance eqSelectQuery :: Eq (SelectQuery results a) where
+  eq a b = selectSql a == selectSql b
+
+instance arbitrarySelectQuery :: Arbitrary a => Arbitrary (SelectQuery results a) where
+
+  arbitrary = arbitrary' 5
+    where
+      arbitrary' depth =
+        Gen.oneOf (
+          pure InvalidSelectQuery :| [
+            pure $ FromSelectQuery tName (const arbitraryA),
+            pure $ JoinSelectQuery tName (const arbitraryA) (const alwaysTrue),
+            pure $ SelectSelectQuery Nil alwaysTrue
+          ] <> recursives depth
+        )
+
+      recursives depth | depth <= 0 = []
+      recursives depth | otherwise =
+        let next = arbitrary' (depth - 1) in [
+          next >>= \child -> pure $ BindFromSelectQuery tName (const child),
+          next >>= \child -> pure $ BindJoinSelectQuery tName (const child) (const alwaysTrue)
+        ]
+
+      tName = TableName "test"
+
+      arbitraryA = Gen.evalGen arbitrary { newSeed: LCG.mkSeed 1, size: 1 }
 
 data UpdateQuery = UpdateQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
 
@@ -414,12 +443,12 @@ type FullSelectQuery = {
   filter :: Expression Boolean
 }
 
-selectSql :: forall cols. SelectQuery cols Unit -> Either ErrorMessage ParameterizedSql
+selectSql :: forall cols a. SelectQuery cols a -> Either ErrorMessage ParameterizedSql
 selectSql query = do
     full <- toFull query
     Right $ uncurry ParameterizedSql $ runWriter $ toWriter full
   where
-    toFull :: SelectQuery cols Unit -> Either String FullSelectQuery
+    toFull :: SelectQuery cols a -> Either String FullSelectQuery
     toFull (BindFromSelectQuery table tail) =
       let alias = makeAlias 0
           inner = tail alias
@@ -427,7 +456,7 @@ selectSql query = do
     toFull _ =
       Left "SQL query is missing initial from-clause"
 
-    toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols Unit -> Either ErrorMessage FullSelectQuery
+    toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols a -> Either ErrorMessage FullSelectQuery
     toFull' rootTable joinedTables (BindJoinSelectQuery table tail expr) =
       let alias = makeAlias $ List.length joinedTables + 1
           inner = tail alias

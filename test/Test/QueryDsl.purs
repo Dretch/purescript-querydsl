@@ -4,12 +4,17 @@ import Prelude (Unit, bind, discard, void, ($))
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Effect.Class (liftEffect)
 import QueryDsl
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
+import Test.QuickCheck.Laws.Control.Apply (checkApply)
+import Test.QuickCheck.Laws.Control.Bind (checkBind)
+import Test.QuickCheck.Laws.Data.Functor (checkFunctor)
 import Test.Spec (Spec, describe, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
+import Type.Proxy (Proxy2(..))
 
 c :: forall t. SqlType t => t -> Constant
 c = toConstant
@@ -126,6 +131,14 @@ sqlType = do
         fromConstant (IntConstant 123) `shouldEqual` Just (Just 123)
         fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
 
+selectQueryLaws :: Spec Unit
+selectQueryLaws = do
+  describe "SelectQuery laws" do
+    let proxy = Proxy2 :: Proxy2 (SelectQuery ())
+    it "Functor" $ liftEffect $ checkFunctor proxy
+    it "Apply" $ liftEffect $ checkApply proxy
+    it "Bind" $ liftEffect $ checkBind proxy
+
 test :: Spec Unit
 test = do
   describeOnly "QueryDsl" do
@@ -172,4 +185,5 @@ test = do
         [ c 2, c "abc" ]
 
     sqlType
+    selectQueryLaws
     Expressions.test
