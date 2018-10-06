@@ -13,7 +13,7 @@ import Test.QueryDsl.Expressions as Expressions
 import Test.QuickCheck.Laws.Control.Apply (checkApply)
 import Test.QuickCheck.Laws.Control.Bind (checkBind)
 import Test.QuickCheck.Laws.Data.Functor (checkFunctor)
-import Test.Spec (Spec, describe, describeOnly, it)
+import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Data.Boolean (False, True)
 import Type.Proxy (Proxy2(..))
@@ -222,7 +222,7 @@ resultGeneration = do
 
 test :: Spec Unit
 test = do
-  describeOnly "QueryDsl" do
+  describe "QueryDsl" do
     sqlGeneration
     resultGeneration
     sqlType
