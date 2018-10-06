@@ -1,3 +1,5 @@
+-- | Some operators for building where clauses and other expressions.
+-- |
 -- | The operator precedence used here is designed to match the normal purescript operators.
 module QueryDsl.Expressions (
   eq,

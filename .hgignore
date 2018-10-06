@@ -5,3 +5,4 @@ output
 .psc-ide-port
 dump/*
 .psci_modules
+generated-docs
