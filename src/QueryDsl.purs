@@ -4,7 +4,6 @@ module QueryDsl (
   fromConstant,
   Constant(..),
   Table,
-  TypedColumn,
   Column,
   ColumnName,
   SelectQuery,
@@ -61,8 +60,8 @@ import Data.Either (Either(..))
 import Data.Foldable (class Foldable)
 import Data.List (List(..), snoc, (:))
 import Data.List as List
-import Data.Map as Map
 import Data.Map (Map)
+import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.NonEmpty ((:|))
 import Data.String (joinWith)
@@ -75,6 +74,7 @@ import Random.LCG as LCG
 import Record as Record
 import Test.QuickCheck.Arbitrary (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen as Gen
+import Type.Data.Boolean (kind Boolean, False, True)
 import Type.Row (class RowToList, Cons, Nil, RLProxy(..), RProxy(..), kind RowList)
 
 class SqlType t where
@@ -121,9 +121,7 @@ data Table (cols :: #Type) = Table TableName (List UnTypedColumn) (TableName -> 
 
 data UnTypedColumn = UnTypedColumn TableName ColumnName
 
-newtype TypedColumn (name :: Symbol) typ = TypedColumn UnTypedColumn
-
-data Column (name :: Symbol) typ = Column
+newtype Column (name :: Symbol) typ (required :: Boolean) = Column UnTypedColumn
 
 -- | A query that selects data from a table
 data SelectQuery (results :: #Type) a =
@@ -218,8 +216,8 @@ newtype Expression result = Expression UntypedExpression
 class ToExpression a result | a -> result where
   toExpression :: a -> Expression result
 
-instance toExpressionTypedColumn :: ToExpression (TypedColumn name typ) typ where
-  toExpression (TypedColumn c) = Expression (ColumnExpr c)
+instance toExpressionColumn :: ToExpression (Column name typ required) typ where
+  toExpression (Column c) = Expression (ColumnExpr c)
 
 else instance toExpressionExpression :: ToExpression (Expression result) result where
   toExpression e = e
@@ -251,27 +249,28 @@ alwaysTrue = Expression AlwaysTrueExpr
 makeTable :: String -> Table ()
 makeTable name = Table (TableName name) Nil (const {})
 
-addColumn :: forall name typ oldCols newCols.
+addColumn :: forall name typ oldCols newCols required.
   SqlType typ =>
   IsSymbol name =>
   Lacks name oldCols =>
-  Cons name (TypedColumn name typ) oldCols newCols =>
+  Cons name (Column name typ required) oldCols newCols =>
   Table oldCols ->
-  Column name typ ->
+  Column name typ required ->
   Table newCols
-addColumn (Table tName cols makeRec) Column =
+addColumn (Table tName cols makeRec) (Column (UnTypedColumn _ cName)) =
   Table tName (snoc cols $ UnTypedColumn tName cName) makeRec'
   where
-    cName = ColumnName $ reflectSymbol cNameProxy
-
     cNameProxy = SProxy :: SProxy name
 
     makeRec' tName' =
-      let col' = TypedColumn $ UnTypedColumn tName' cName in
+      let col' = Column $ UnTypedColumn tName' cName in
       Record.insert cNameProxy col' (makeRec tName')
 
-column :: forall name typ. Column name typ
-column = Column
+column :: forall name typ required. IsSymbol name => Column name typ required
+column = Column $ UnTypedColumn tName cName
+  where
+    tName = TableName ""
+    cName = ColumnName $ reflectSymbol (SProxy :: SProxy name)
 
 columns :: forall cols. Table cols -> Record cols
 columns (Table name cols rec) = rec name
@@ -348,13 +347,13 @@ instance applyInsertExpressionsNil
     where
       getInsertExpressions' _ _ _ _ = Nil
 
-else instance applyInsertExpressionsMaybeValueGiven
+else instance applyInsertExpressionsOptionalValueGiven
   :: ( ApplyInsertExpressions colsRLTail exprsRLTail exprsRTail
      , IsSymbol name
      , SqlType typ
-     , Cons name (Maybe typ) exprsRTail exprsR
+     , Cons name typ exprsRTail exprsR
      , Lacks name exprsRTail ) =>
-     ApplyInsertExpressions (Cons name (TypedColumn name (Maybe typ)) colsRLTail) (Cons name (Maybe typ) exprsRLTail) exprsR
+     ApplyInsertExpressions (Cons name (Column name typ False) colsRLTail) (Cons name typ exprsRLTail) exprsR
     where
       getInsertExpressions' _ _ _ rec =
         Tuple cName cValue : tail
@@ -369,20 +368,20 @@ else instance applyInsertExpressionsMaybeValueGiven
             (RProxy :: RProxy exprsRTail)
             tailRec
 
-else instance applyInsertExpressionsMaybeValueNotGiven
+else instance applyInsertExpressionsOptionalValueNotGiven
   :: ApplyInsertExpressions colsRLTail exprsRL exprsR =>
-     ApplyInsertExpressions (Cons name (TypedColumn name (Maybe typ)) colsRLTail) exprsRL exprsR
+     ApplyInsertExpressions (Cons name (Column name typ False) colsRLTail) exprsRL exprsR
     where
       getInsertExpressions' _ exprsRLProxy exprsRProxy exprsR =
         getInsertExpressions' (RLProxy :: RLProxy colsRLTail) exprsRLProxy exprsRProxy exprsR
 
-else instance applyInsertExpressionsCons
+else instance applyInsertExpressionsRequiredValue
   :: ( ApplyInsertExpressions colsRLTail exprsRLTail exprsRTail
      , IsSymbol name
      , SqlType typ
      , Cons name typ exprsRTail exprsR
      , Lacks name exprsRTail ) =>
-     ApplyInsertExpressions (Cons name (TypedColumn name typ) colsRLTail) (Cons name typ exprsRLTail) exprsR
+     ApplyInsertExpressions (Cons name (Column name typ True) colsRLTail) (Cons name typ exprsRLTail) exprsR
     where
       getInsertExpressions' _ _ _ rec =
         Tuple cName cValue : tail
@@ -426,7 +425,7 @@ else instance applyUpdateExpressionsCons
      , ToExpression toExpr typ
      , Cons name toExpr exprsRTail exprsR
      , Lacks name exprsRTail ) =>
-    ApplyUpdateExpressions (Cons name (TypedColumn name typ) colsRLTail) (Cons name toExpr exprsRLTail) exprsR
+    ApplyUpdateExpressions (Cons name (Column name typ required) colsRLTail) (Cons name toExpr exprsRLTail) exprsR
   where
     getUpdateExpressions' _ _ exprs =
       Tuple cName uExpr : tail

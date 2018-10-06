@@ -1,12 +1,12 @@
 module Test.QueryDsl (test) where
 
-import Prelude (Unit, bind, discard, void, ($))
+import QueryDsl
 
 import Data.Either (Either(..))
-import Data.Maybe (Maybe(..))
 import Data.Map as Map
+import Data.Maybe (Maybe(..))
 import Effect.Class (liftEffect)
-import QueryDsl
+import Prelude (Unit, bind, discard, void, ($))
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
@@ -15,24 +15,23 @@ import Test.QuickCheck.Laws.Control.Bind (checkBind)
 import Test.QuickCheck.Laws.Data.Functor (checkFunctor)
 import Test.Spec (Spec, describe, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
+import Type.Data.Boolean (False, True)
 import Type.Proxy (Proxy2(..))
 import Type.Row (RProxy(..))
 
 c :: forall t. SqlType t => t -> Constant
 c = toConstant
 
--- todo: support auto-generated primary key / timestamp / etc fields that don't need a value on insert
-
 testTable :: Table _
 testTable = makeTable "test"
-  `addColumn` (column :: Column "id" String)
-  `addColumn` (column :: Column "count" Int)
-  `addColumn` (column :: Column "description" (Maybe String))
+  `addColumn` (column :: Column "id" String False)
+  `addColumn` (column :: Column "count" Int True)
+  `addColumn` (column :: Column "description" (Maybe String) False)
 
 testChildTable :: Table _
 testChildTable = makeTable "child"
-  `addColumn` (column :: Column "id" String)
-  `addColumn` (column :: Column "extra" String)
+  `addColumn` (column :: Column "id" String True)
+  `addColumn` (column :: Column "extra" String True)
 
 simpleSelectQuery :: SelectQuery (id :: String, count :: Int) Unit
 simpleSelectQuery = do
@@ -84,9 +83,9 @@ insertQuery :: InsertQuery
 insertQuery =
   insertInto testTable {id: "abc", count: 123, description: Nothing :: Maybe String}
 
-insertQueryWithNoValueForMaybeField :: InsertQuery
-insertQueryWithNoValueForMaybeField =
-  insertInto testTable {id: "abc", count: 123}
+insertQueryWithRequiredFieldsOnly :: InsertQuery
+insertQueryWithRequiredFieldsOnly =
+  insertInto testTable {count: 123}
 
 sqlType :: Spec Unit
 sqlType = do
@@ -188,10 +187,10 @@ sqlGeneration = do
         "insert into test (id, description, count) values (?, ?, ?)"
         [ c "abc", NullConstant, c 123 ]
 
-    it "insertQueryWithNoValueForMaybeField" do
-      toSql insertQueryWithNoValueForMaybeField `shouldBeSql` ParameterizedSql
-        "insert into test (id, count) values (?, ?)"
-        [ c "abc", c 123 ]
+    it "insertQueryWithRequiredFieldsOnly" do
+      toSql insertQueryWithRequiredFieldsOnly `shouldBeSql` ParameterizedSql
+        "insert into test (count) values (?)"
+        [ c 123 ]
 
     it "filteredUpdateQuery" do
       toSql filteredUpdateQuery `shouldBeSql` ParameterizedSql
