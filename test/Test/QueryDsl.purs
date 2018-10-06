@@ -22,7 +22,6 @@ c :: forall t. SqlType t => t -> Constant
 c = toConstant
 
 -- todo: support auto-generated primary key / timestamp / etc fields that don't need a value on insert
--- todo: support not giving values on insert for Maybe type fields
 
 testTable :: Table _
 testTable = makeTable "test"
@@ -82,7 +81,12 @@ filteredDeleteQuery =
   deleteFrom testTable (t.id :== "abc")
 
 insertQuery :: InsertQuery
-insertQuery = insertInto testTable {id: "abc", count: 123, description: Nothing :: Maybe String}
+insertQuery =
+  insertInto testTable {id: "abc", count: 123, description: Nothing :: Maybe String}
+
+insertQueryWithNoValueForMaybeField :: InsertQuery
+insertQueryWithNoValueForMaybeField =
+  insertInto testTable {id: "abc", count: 123}
 
 sqlType :: Spec Unit
 sqlType = do
@@ -183,6 +187,11 @@ sqlGeneration = do
       toSql insertQuery `shouldBeSql` ParameterizedSql
         "insert into test (id, description, count) values (?, ?, ?)"
         [ c "abc", NullConstant, c 123 ]
+
+    it "insertQueryWithNoValueForMaybeField" do
+      toSql insertQueryWithNoValueForMaybeField `shouldBeSql` ParameterizedSql
+        "insert into test (id, count) values (?, ?)"
+        [ c "abc", c 123 ]
 
     it "filteredUpdateQuery" do
       toSql filteredUpdateQuery `shouldBeSql` ParameterizedSql

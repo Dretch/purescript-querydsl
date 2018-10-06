@@ -75,7 +75,7 @@ import Random.LCG as LCG
 import Record as Record
 import Test.QuickCheck.Arbitrary (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen as Gen
-import Type.Row (class RowToList, class ListToRow, Cons, Nil, kind RowList, RLProxy(..), RProxy(..))
+import Type.Row (class RowToList, Cons, Nil, RLProxy(..), RProxy(..), kind RowList)
 
 class SqlType t where
   toConstant :: t -> Constant
@@ -348,7 +348,35 @@ instance applyInsertExpressionsNil
     where
       getInsertExpressions' _ _ _ _ = Nil
 
-instance applyInsertExpressionsCons
+else instance applyInsertExpressionsMaybeValueGiven
+  :: ( ApplyInsertExpressions colsRLTail exprsRLTail exprsRTail
+     , IsSymbol name
+     , SqlType typ
+     , Cons name (Maybe typ) exprsRTail exprsR
+     , Lacks name exprsRTail ) =>
+     ApplyInsertExpressions (Cons name (TypedColumn name (Maybe typ)) colsRLTail) (Cons name (Maybe typ) exprsRLTail) exprsR
+    where
+      getInsertExpressions' _ _ _ rec =
+        Tuple cName cValue : tail
+        where
+          nameProxy = SProxy :: SProxy name
+          cName = ColumnName $ reflectSymbol nameProxy
+          cValue = toConstant $ Record.get nameProxy rec
+          tailRec = Record.delete nameProxy rec
+          tail = getInsertExpressions'
+            (RLProxy :: RLProxy colsRLTail)
+            (RLProxy :: RLProxy exprsRLTail)
+            (RProxy :: RProxy exprsRTail)
+            tailRec
+
+else instance applyInsertExpressionsMaybeValueNotGiven
+  :: ApplyInsertExpressions colsRLTail exprsRL exprsR =>
+     ApplyInsertExpressions (Cons name (TypedColumn name (Maybe typ)) colsRLTail) exprsRL exprsR
+    where
+      getInsertExpressions' _ exprsRLProxy exprsRProxy exprsR =
+        getInsertExpressions' (RLProxy :: RLProxy colsRLTail) exprsRLProxy exprsRProxy exprsR
+
+else instance applyInsertExpressionsCons
   :: ( ApplyInsertExpressions colsRLTail exprsRLTail exprsRTail
      , IsSymbol name
      , SqlType typ
