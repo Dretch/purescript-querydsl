@@ -4,6 +4,7 @@ import Prelude (Unit, bind, discard, void, ($))
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.Map as Map
 import Effect.Class (liftEffect)
 import QueryDsl
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
@@ -15,9 +16,13 @@ import Test.QuickCheck.Laws.Data.Functor (checkFunctor)
 import Test.Spec (Spec, describe, describeOnly, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy2(..))
+import Type.Row (RProxy(..))
 
 c :: forall t. SqlType t => t -> Constant
 c = toConstant
+
+-- todo: support auto-generated primary key / timestamp / etc fields that don't need a value on insert
+-- todo: support not giving values on insert for Maybe type fields
 
 testTable :: Table _
 testTable = makeTable "test"
@@ -139,9 +144,9 @@ selectQueryLaws = do
     it "Apply" $ liftEffect $ checkApply proxy
     it "Bind" $ liftEffect $ checkBind proxy
 
-test :: Spec Unit
-test = do
-  describeOnly "QueryDsl" do
+sqlGeneration :: Spec Unit
+sqlGeneration = do
+  describe "toSql" do
 
     it "simpleSelectQuery" do
       toSql simpleSelectQuery `shouldBeSql` ParameterizedSql
@@ -184,6 +189,34 @@ test = do
         "update test set count = (test.count * ?) where (test.id = ?)"
         [ c 2, c "abc" ]
 
+resultGeneration :: Spec Unit
+resultGeneration = do
+  describe "constantsToRecord" do
+
+    let idProxy = RProxy :: RProxy (id :: Int)
+    let idNameProxy = RProxy :: RProxy (id :: Int, name :: String)
+
+    it "fields match" do
+      constantsToRecord idNameProxy (Map.insert "id" (c 123) $ Map.singleton "name" (c "abc"))
+        `shouldEqual` Right {id: 123, name: "abc"}
+
+    it "extra field value supplied" do
+      constantsToRecord idProxy (Map.insert "id" (c 123) $ Map.singleton "extra" (c 456))
+        `shouldEqual` Left "Value supplied for unknown field: extra = 456"
+
+    it "expected field value missing" do
+      constantsToRecord idNameProxy (Map.singleton "id" (c 123))
+        `shouldEqual` Left "No value found for required field: name"
+
+    it "field value with incorrect type" do
+      constantsToRecord idProxy (Map.singleton "id" (c "123"))
+        `shouldEqual` Left "Value has incorrect type for field id, unable to convert: \"123\""
+
+test :: Spec Unit
+test = do
+  describeOnly "QueryDsl" do
+    sqlGeneration
+    resultGeneration
     sqlType
     selectQueryLaws
     Expressions.test

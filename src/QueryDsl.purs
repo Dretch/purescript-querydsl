@@ -47,7 +47,11 @@ module QueryDsl (
   columns,
   class Query,
   toSql,
-  expressionSql) where
+  expressionSql,
+  class ConstantsToRecord,
+  constantsToRecord,
+  class ApplyConstantsToRecord,
+  constantsToRecord') where
 
 import Prelude
 
@@ -57,6 +61,8 @@ import Data.Either (Either(..))
 import Data.Foldable (class Foldable)
 import Data.List (List(..), snoc, (:))
 import Data.List as List
+import Data.Map as Map
+import Data.Map (Map)
 import Data.Maybe (Maybe(..))
 import Data.NonEmpty ((:|))
 import Data.String (joinWith)
@@ -69,7 +75,7 @@ import Random.LCG as LCG
 import Record as Record
 import Test.QuickCheck.Arbitrary (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen as Gen
-import Type.Row (class RowToList, Cons, Nil, kind RowList, RLProxy(..), RProxy(..))
+import Type.Row (class RowToList, class ListToRow, Cons, Nil, kind RowList, RLProxy(..), RProxy(..))
 
 class SqlType t where
   toConstant :: t -> Constant
@@ -583,6 +589,46 @@ whereClauseSql (Expression AlwaysTrueExpr) = pure ""
 whereClauseSql expr = do
   e <- expressionSql' expr
   pure $ " where " <> e
+
+class ConstantsToRecord (r :: #Type) where
+  constantsToRecord :: RProxy r -> Map String Constant -> Either ErrorMessage (Record r)
+
+instance constantsToRecordImpl
+  :: ( RowToList r rl
+     , ApplyConstantsToRecord r rl ) => ConstantsToRecord r where
+  constantsToRecord r = constantsToRecord' (RLProxy :: RLProxy rl)
+
+class ApplyConstantsToRecord (r :: #Type) (rl :: RowList) | rl -> r where
+  constantsToRecord' :: RLProxy rl -> Map String Constant -> Either ErrorMessage (Record r)
+
+instance applyConstantsToRecordNil :: ApplyConstantsToRecord () Nil where
+  constantsToRecord' _ cols =
+    case Map.findMin cols of
+      Nothing -> Right {}
+      Just {key, value} -> Left $ "Value supplied for unknown field: " <> key <> " = " <> show value
+
+instance applyConstantsToRecordCons
+  :: ( ApplyConstantsToRecord rTail rlTail
+     , IsSymbol name
+     , SqlType typ
+     , Cons name typ rTail r
+     , Lacks name rTail ) => ApplyConstantsToRecord r (Cons name typ rlTail)
+  where
+    constantsToRecord' _ cols =
+      case Map.pop name cols of
+        Nothing ->
+          Left $ "No value found for required field: " <> name
+        Just (Tuple c tailMap) ->
+          case fromConstant c of
+            Nothing ->
+              Left $ "Value has incorrect type for field " <> name <> ", unable to convert: " <> show c
+            Just v -> do
+              tailRec <- constantsToRecord' tailRLProxy tailMap
+              Right $ Record.insert nameProxy v tailRec
+      where
+        nameProxy = SProxy :: SProxy name
+        name = reflectSymbol nameProxy
+        tailRLProxy = RLProxy :: RLProxy rlTail
 
 joinSpace :: forall f. Foldable f => f String -> String
 joinSpace = Array.fromFoldable >>> joinWith " "
