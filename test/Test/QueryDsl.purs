@@ -22,16 +22,16 @@ import Type.Row (RProxy(..))
 c :: forall t. SqlType t => t -> Constant
 c = toConstant
 
-testTable :: Table _
-testTable = makeTable "test"
-  `addColumn` (column :: Column "id" String False)
-  `addColumn` (column :: Column "count" Int True)
-  `addColumn` (column :: Column "description" (Maybe String) False)
+testTable = makeTable "test" :: Table (
+  id :: Column String False,
+  count :: Column Int True,
+  description :: Column (Maybe String) False
+)
 
-testChildTable :: Table _
-testChildTable = makeTable "child"
-  `addColumn` (column :: Column "id" String True)
-  `addColumn` (column :: Column "extra" String True)
+testChildTable = makeTable "child" :: Table (
+  id :: Column String True,
+  extra :: Column String True
+)
 
 simpleSelectQuery :: SelectQuery (id :: String, count :: Int) Unit
 simpleSelectQuery = do
