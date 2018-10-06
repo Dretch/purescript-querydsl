@@ -1,8 +1,9 @@
+-- | A type-safe and composable SQL query builder.
 module QueryDsl (
+  Constant(..),
   class SqlType,
   toConstant,
   fromConstant,
-  Constant(..),
   Table,
   Column,
   ColumnName,
@@ -77,6 +78,21 @@ import Test.QuickCheck.Gen as Gen
 import Type.Data.Boolean (kind Boolean, False, True)
 import Type.Row (class RowToList, Cons, Nil, RLProxy(..), RProxy(..), kind RowList)
 
+-- | Values that can be stored in database columns
+data Constant = StringConstant String
+              | IntConstant Int
+              | NumberConstant Number
+              | NullConstant
+
+derive instance eqConstant :: Eq Constant
+
+instance showConstant :: Show Constant where
+  show (StringConstant s) = show s
+  show (IntConstant i) = show i
+  show (NumberConstant f) = show f
+  show NullConstant = "null"
+
+-- | Types that can be converted to/from Constant values
 class SqlType t where
   toConstant :: t -> Constant
   fromConstant :: Constant -> Maybe t
@@ -117,13 +133,15 @@ newtype ColumnName = ColumnName String
 
 derive newtype instance eqColumnName :: Eq ColumnName
 
+-- | A table definition, with a row-type parameter that captures the types of the columns in the table.
 data Table (cols :: #Type) = Table TableName (List UnTypedColumn) (TableName -> Record cols)
 
 data UnTypedColumn = UnTypedColumn TableName ColumnName
 
+-- | A column within a table, with the name, column type, and optionality represented in the type of the Column
 newtype Column (name :: Symbol) typ (required :: Boolean) = Column UnTypedColumn
 
--- | A query that selects data from a table
+-- | A query that selects data, with the type of the columns in the result represented in the type of the SelectQuery
 data SelectQuery (results :: #Type) a =
     FromSelectQuery TableName (TableName -> a)
   | JoinSelectQuery TableName (TableName -> a) (TableName -> Expression Boolean)
@@ -191,19 +209,6 @@ data DeleteQuery = DeleteQuery TableName (Expression Boolean)
 
 data InsertQuery = InsertQuery TableName (List (Tuple ColumnName Constant))
 
-data Constant = StringConstant String
-              | IntConstant Int
-              | NumberConstant Number
-              | NullConstant
-
-derive instance eqConstant :: Eq Constant
-
-instance showConstant :: Show Constant where
-  show (StringConstant s) = show s
-  show (IntConstant i) = show i
-  show (NumberConstant f) = show f
-  show NullConstant = "null"
-
 data UntypedExpression = PrefixOperatorExpr String UntypedExpression
                        | PostfixOperatorExpr String UntypedExpression
                        | BinaryOperatorExpr String UntypedExpression UntypedExpression
@@ -246,9 +251,11 @@ instance showParameterizedSql :: Show ParameterizedSql where
 alwaysTrue :: Expression Boolean
 alwaysTrue = Expression AlwaysTrueExpr
 
+-- | Makes a table that has no columns.
 makeTable :: String -> Table ()
 makeTable name = Table (TableName name) Nil (const {})
 
+-- | Adds a column to a table.
 addColumn :: forall name typ oldCols newCols required.
   SqlType typ =>
   IsSymbol name =>
@@ -266,18 +273,22 @@ addColumn (Table tName cols makeRec) (Column (UnTypedColumn _ cName)) =
       let col' = Column $ UnTypedColumn tName' cName in
       Record.insert cNameProxy col' (makeRec tName')
 
+-- | Creates a column for adding to a table.
 column :: forall name typ required. IsSymbol name => Column name typ required
 column = Column $ UnTypedColumn tName cName
   where
     tName = TableName ""
     cName = ColumnName $ reflectSymbol (SProxy :: SProxy name)
 
+-- | Gets the columns associated with a table.
 columns :: forall cols. Table cols -> Record cols
 columns (Table name cols rec) = rec name
 
+-- | Starts a SelectQuery by specifying the initial table.
 from :: forall cols results. Table cols -> SelectQuery results (Record cols)
 from (Table tName _ cols) = FromSelectQuery tName cols
 
+-- | Extends a SelectQuery by specifying a join table.
 join :: forall cols results. Table cols -> (Record cols -> Expression Boolean) -> SelectQuery results (Record cols)
 join (Table tName _ cols) expr =
   JoinSelectQuery tName cols (\tName' -> expr $ cols tName')
@@ -321,6 +332,7 @@ instance applySelectExpressionsCons
           (tailExprs :: Record exprsRTail)
           (RLProxy :: RLProxy resultsRLTail)
 
+-- | Finishes a SelectQuery by defining which columns to return, and the where-clause to use.
 select :: forall exprs results. SelectExpressions exprs results => Record exprs -> Expression Boolean -> SelectQuery results Unit
 select exprs filter = SelectSelectQuery (getSelectExpressions exprs) filter
 
