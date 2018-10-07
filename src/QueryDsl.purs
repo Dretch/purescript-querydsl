@@ -64,6 +64,7 @@ import Control.Monad.Writer (Writer, runWriter, tell)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Foldable (class Foldable)
+import Data.Int as Int
 import Data.List (List(..), (:))
 import Data.List as List
 import Data.Map (Map)
@@ -115,6 +116,7 @@ instance sqlTypeInt :: SqlType Int where
 instance sqlTypeNumber :: SqlType Number where
   toConstant = NumberConstant
   fromConstant (NumberConstant n) = Just n
+  fromConstant (IntConstant n) = Just $ Int.toNumber n
   fromConstant _ = Nothing
 
 instance sqlTypeBoolean :: SqlType Boolean where
