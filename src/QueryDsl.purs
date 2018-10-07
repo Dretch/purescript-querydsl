@@ -141,7 +141,7 @@ newtype ColumnName = ColumnName String
 derive newtype instance eqColumnName :: Eq ColumnName
 
 -- | A table definition, with a row-type parameter that captures the types of the columns in the table.
-data Table (cols :: #Type) = Table TableName (TableName -> Record cols)
+data Table (cols :: #Type) = Table TableName (TableName -> { | cols })
 
 data UnTypedColumn = UnTypedColumn TableName ColumnName
 
@@ -262,7 +262,7 @@ alwaysTrue = Expression AlwaysTrueExpr
 
 -- | Represents row types where each item is `name: Column typ required`
 class TableColumns (cols :: #Type) where
-  getTableColumns :: RProxy cols -> TableName -> Record cols
+  getTableColumns :: RProxy cols -> TableName -> { | cols }
 
 instance tableColumnsImpl
   :: ( RowToList colsR colsRL
@@ -271,7 +271,7 @@ instance tableColumnsImpl
     getTableColumns rp = getTableColumns' (RLProxy :: RLProxy colsRL) rp
 
 class ApplyTableColumns (colsRL :: RowList) (colsR :: #Type) | colsRL -> colsR where
-  getTableColumns' :: RLProxy colsRL -> RProxy colsR -> TableName -> Record colsR
+  getTableColumns' :: RLProxy colsRL -> RProxy colsR -> TableName -> { | colsR }
 
 instance applyTableColumnsNil :: ApplyTableColumns Nil () where
   getTableColumns' _ _ _ = {}
@@ -300,20 +300,20 @@ makeTable name =
   Table (TableName name) (getTableColumns (RProxy :: RProxy cols))
 
 -- | Gets the columns associated with a table.
-columns :: forall cols. Table cols -> Record cols
+columns :: forall cols. Table cols -> { | cols }
 columns (Table name rec) = rec name
 
 -- | Starts a SelectQuery by specifying the initial table.
-from :: forall cols results. Table cols -> SelectQuery results (Record cols)
+from :: forall cols results. Table cols -> SelectQuery results { | cols }
 from (Table tName cols) = FromSelectQuery tName cols
 
 -- | Extends a SelectQuery by specifying a join table.
-join :: forall cols results. Table cols -> (Record cols -> Expression Boolean) -> SelectQuery results (Record cols)
+join :: forall cols results. Table cols -> ({ | cols } -> Expression Boolean) -> SelectQuery results { | cols }
 join (Table tName cols) expr =
   JoinSelectQuery tName cols (\tName' -> expr $ cols tName')
 
 class SelectExpressions (exprs :: #Type) (result :: #Type) | exprs -> result where
-  getSelectExpressions :: Record exprs -> List (Tuple ColumnName UntypedExpression)
+  getSelectExpressions :: { | exprs } -> List (Tuple ColumnName UntypedExpression)
 
 instance selectExpressionsImpl
   :: ( RowToList exprsR exprsRL
@@ -324,7 +324,7 @@ instance selectExpressionsImpl
       (RLProxy :: RLProxy exprsRL) exprs (RLProxy :: RLProxy resultsRL)
 
 class ApplySelectExpressions (exprsRL :: RowList) (exprsR :: #Type) (resultsRL :: RowList) where
-  getSelectExpressions' :: RLProxy exprsRL -> Record exprsR -> RLProxy resultsRL -> List (Tuple ColumnName UntypedExpression)
+  getSelectExpressions' :: RLProxy exprsRL -> { | exprsR } -> RLProxy resultsRL -> List (Tuple ColumnName UntypedExpression)
 
 instance applySelectExpressionsNil
   :: ApplySelectExpressions Nil exprsR Nil
@@ -348,15 +348,15 @@ instance applySelectExpressionsCons
         tailExprs = Record.delete nameProxy exprs
         tail = getSelectExpressions'
           (RLProxy :: RLProxy exprsRLTail)
-          (tailExprs :: Record exprsRTail)
+          (tailExprs :: { | exprsRTail })
           (RLProxy :: RLProxy resultsRLTail)
 
 -- | Finishes a SelectQuery by defining which columns to return, and the where-clause to use.
-select :: forall exprs results. SelectExpressions exprs results => Record exprs -> Expression Boolean -> SelectQuery results Unit
+select :: forall exprs results. SelectExpressions exprs results => { | exprs } -> Expression Boolean -> SelectQuery results Unit
 select exprs filter = SelectSelectQuery (getSelectExpressions exprs) filter
 
 class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
-  getInsertExpressions :: Record exprs -> List (Tuple ColumnName Constant)
+  getInsertExpressions :: { | exprs } -> List (Tuple ColumnName Constant)
 
 instance insertExpressionsImpl
  :: ( RowToList colsR colsRL
@@ -371,7 +371,7 @@ instance insertExpressionsImpl
 
 class ApplyInsertExpressions (colsRL :: RowList) (exprsRL :: RowList) (exprsR :: #Type)
   where
-    getInsertExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> RProxy exprsR -> Record exprsR -> List (Tuple ColumnName Constant)
+    getInsertExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> RProxy exprsR -> { | exprsR } -> List (Tuple ColumnName Constant)
 
 instance applyInsertExpressionsNil
   :: ApplyInsertExpressions Nil Nil exprsR
@@ -427,12 +427,12 @@ else instance applyInsertExpressionsRequiredValue
             (RProxy :: RProxy exprsRTail)
             tailRec
 
-insertInto :: forall cols exprs. InsertExpressions cols exprs => Table cols -> Record exprs -> InsertQuery
+insertInto :: forall cols exprs. InsertExpressions cols exprs => Table cols -> { | exprs } -> InsertQuery
 insertInto (Table tName _) exprs =
   InsertQuery tName $ List.reverse $ getInsertExpressions exprs
 
 class UpdateExpressions (cols :: #Type) (exprs :: #Type) where
-  getUpdateExpressions :: Record cols -> Record exprs -> List (Tuple ColumnName UntypedExpression)
+  getUpdateExpressions :: { | cols } -> { | exprs } -> List (Tuple ColumnName UntypedExpression)
 
 instance updateExpressionsImpl
   :: ( RowToList colsR colsRL
@@ -443,7 +443,7 @@ instance updateExpressionsImpl
       (RLProxy :: RLProxy colsRL) (RLProxy :: RLProxy exprsRL) exprs
 
 class ApplyUpdateExpressions (colsRL :: RowList) (exprsRL :: RowList) (exprsR :: #Type) where
-  getUpdateExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> Record exprsR -> List (Tuple ColumnName UntypedExpression)
+  getUpdateExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> { | exprsR } -> List (Tuple ColumnName UntypedExpression)
 
 instance applyUpdateExpressionsNil
   :: ApplyUpdateExpressions colsRL Nil exprsR
@@ -468,9 +468,9 @@ else instance applyUpdateExpressionsCons
         tail = getUpdateExpressions'
           (RLProxy :: RLProxy colsRLTail)
           (RLProxy :: RLProxy exprsRLTail)
-          (tailExprs :: Record exprsRTail)
+          (tailExprs :: { | exprsRTail })
 
-update :: forall cols exprs. UpdateExpressions cols exprs => Table cols -> Record exprs -> Expression Boolean -> UpdateQuery
+update :: forall cols exprs. UpdateExpressions cols exprs => Table cols -> { | exprs } -> Expression Boolean -> UpdateQuery
 update (Table tName cols) exprs filter =
   UpdateQuery tName (getUpdateExpressions (cols tName) exprs) filter
 
@@ -661,7 +661,7 @@ whereClauseSql expr = do
   pure $ " where " <> e
 
 class ConstantsToRecord (r :: #Type) where
-  constantsToRecord :: RProxy r -> Map String Constant -> Either ErrorMessage (Record r)
+  constantsToRecord :: RProxy r -> Map String Constant -> Either ErrorMessage { | r }
 
 instance constantsToRecordImpl
   :: ( RowToList r rl
@@ -669,7 +669,7 @@ instance constantsToRecordImpl
   constantsToRecord r = constantsToRecord' (RLProxy :: RLProxy rl)
 
 class ApplyConstantsToRecord (r :: #Type) (rl :: RowList) | rl -> r where
-  constantsToRecord' :: RLProxy rl -> Map String Constant -> Either ErrorMessage (Record r)
+  constantsToRecord' :: RLProxy rl -> Map String Constant -> Either ErrorMessage { | r }
 
 instance applyConstantsToRecordNil :: ApplyConstantsToRecord () Nil where
   constantsToRecord' _ cols =
