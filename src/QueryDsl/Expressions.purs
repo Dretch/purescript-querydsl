@@ -31,9 +31,18 @@ module QueryDsl.Expressions (
   is,
   isNot,
   isNull,
-  isNotNull) where
+  isNotNull,
+  avg,
+  avgDistinct,
+  count,
+  countDistinct,
+  countAll,
+  min,
+  max,
+  sum,
+  sumDistinct) where
 
-import QueryDsl (BinaryOperator, UnaryOperator, binaryOperator, prefixOperator, postfixOperator)
+import QueryDsl (Expression, BinaryOperator, UnaryOperator, binaryOperator, postfixOperator, prefixOperator, unaryAggregateFunction, nullaryFunction)
 
 eq :: forall a b c. BinaryOperator a b c Boolean
 eq = binaryOperator "="
@@ -112,3 +121,30 @@ isNull = postfixOperator "is null"
 
 isNotNull :: forall a b. UnaryOperator a b Boolean
 isNotNull = postfixOperator "is not null"
+
+avg :: forall a b. UnaryOperator a b Number
+avg = unaryAggregateFunction "avg" false
+
+avgDistinct :: forall a b. UnaryOperator a b Number
+avgDistinct = unaryAggregateFunction "avg" true
+
+count :: forall a b. UnaryOperator a b Int
+count = unaryAggregateFunction "count" false
+
+countDistinct :: forall a b. UnaryOperator a b Int
+countDistinct = unaryAggregateFunction "count" true
+
+countAll :: Expression Int
+countAll = nullaryFunction "count(*)"
+
+min :: forall a b. UnaryOperator a b b
+min = unaryAggregateFunction "min" false
+
+max :: forall a b. UnaryOperator a b b
+max = unaryAggregateFunction "max" false
+
+sum :: forall a b. UnaryOperator a b b
+sum = unaryAggregateFunction "sum" false
+
+sumDistinct :: forall a b. UnaryOperator a b b
+sumDistinct = unaryAggregateFunction "sum" true
