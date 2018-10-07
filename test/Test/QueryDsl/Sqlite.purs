@@ -2,13 +2,12 @@ module Test.QueryDsl.Sqlite (test) where
 
 import Prelude
 
-import Data.Foldable (sum)
 import Effect.Class (liftEffect)
 import QueryDsl (Column, SelectQuery, Table, alwaysTrue, columns, deleteFrom, from, insertInto, makeTable, select, update)
-import QueryDsl.Expressions ((:+), (:==))
-import QueryDsl.SQLite (runQuery, runSelectManyQuery)
+import QueryDsl.Expressions ((:+), (:==), sum)
+import QueryDsl.SQLite (runQuery, runSelectOneQuery)
 import SQLite3 as SQLite3
-import Test.Spec (Spec, describeOnly, it)
+import Test.Spec (Spec, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Data.Boolean (False, True)
 
@@ -27,39 +26,35 @@ testTable = makeTable "test" :: Table (
   count :: Column Int True
 )
 
--- todo: use aggreate function to sum!
-selectCounts :: SelectQuery (count :: Int) Unit
-selectCounts = do
+selectCount :: SelectQuery (n :: Int) Unit
+selectCount = do
   t <- from testTable
-  select {count: t.count} alwaysTrue
+  select {n: sum t.count} alwaysTrue
 
 test :: Spec Unit
 test = do
-  describeOnly "Sqlite" do
+  it "Sqlite" do
 
-    it "test" do
-      conn <- SQLite3.newDB ":memory:"
-      _ <- SQLite3.queryDB conn createTableSql []
+    conn <- SQLite3.newDB ":memory:"
+    void $ SQLite3.queryDB conn createTableSql []
 
-      runQuery conn $ insertInto testTable {name: "jim", count: 5}
-      runQuery conn $ insertInto testTable {name: "jane", count: 42}
-      runQuery conn $ insertInto testTable {name: "jean", count: 7}
+    let t = columns testTable
 
-      counts <- runSelectManyQuery conn selectCounts
-      sum (_.count <$> counts) `shouldEqual` 54
+    runQuery conn $ insertInto testTable {name: "jim", count: 5}
+    runQuery conn $ insertInto testTable {name: "jane", count: 42}
+    runQuery conn $ insertInto testTable {name: "jean", count: 7}
 
-      runQuery conn $
-        let t = columns testTable in
-        update testTable {count: t.count :+ 1} (t.name :== "jim")
+    count <- runSelectOneQuery conn selectCount
+    count.n `shouldEqual` 54
 
-      counts' <- runSelectManyQuery conn selectCounts
-      sum (_.count <$> counts') `shouldEqual` 55
+    runQuery conn $ update testTable {count: t.count :+ 1} (t.name :== "jim")
 
-      runQuery conn $
-        let t = columns testTable in
-        deleteFrom testTable (t.name :== "jean")
+    count' <- runSelectOneQuery conn selectCount
+    count'.n `shouldEqual` 55
 
-      counts'' <- runSelectManyQuery conn selectCounts
-      sum (_.count <$> counts'') `shouldEqual` 48
+    runQuery conn $ deleteFrom testTable (t.name :== "jean")
 
-      liftEffect $ SQLite3.closeDB conn
+    count'' <- runSelectOneQuery conn selectCount
+    count''.n `shouldEqual` 48
+
+    liftEffect $ SQLite3.closeDB conn
