@@ -52,16 +52,22 @@ runQueryInternal conn q =
     Right (ParameterizedSql sql params) ->
       SQLite3.queryDB conn sql (paramToString <$> params)
 
+-- | Run a query and ignore any results.
 runQuery :: forall q. Query q => DBConnection -> q -> Aff Unit
 runQuery conn q = void $ runQueryInternal conn q
 
+-- | Run a `SelectQuery` and return all the results.
 runSelectManyQuery :: forall cols a. ConstantsToRecord cols => DBConnection -> SelectQuery cols a -> Aff (Array { | cols })
 runSelectManyQuery conn q = do
   res <- runQueryInternal conn q
-  case traverse (constantsToRecord (RProxy :: RProxy cols)) (decodeQueryResponseHelper res) of
+  let resMaps = decodeQueryResponseHelper res
+      toRecord = constantsToRecord (RProxy :: RProxy cols)
+  case traverse toRecord resMaps of
     Left msg -> throwError $ error msg
     Right recs -> pure recs
 
+-- | Run a `SelectQuery` and either return the single result, or throw an error
+-- | if there is more than one result or none at all.
 runSelectOneQuery :: forall cols a. ConstantsToRecord cols => DBConnection -> SelectQuery cols a -> Aff { | cols }
 runSelectOneQuery conn q = do
   many <- runSelectManyQuery conn q
