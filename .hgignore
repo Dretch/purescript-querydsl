@@ -1,0 +1,8 @@
+syntax: glob
+bower_components
+node_modules
+output
+.psc-ide-port
+dump/*
+.psci_modules
+generated-docs
