@@ -1,10 +1,9 @@
 module Test.QueryDsl.Expressions (test) where
 
-import QueryDsl (class SqlType, Constant(..), ParameterizedSql(..), expressionSql, toConstant)
-import QueryDsl.Expressions (is, isNot, isNotNull, isNull, negate, not, (:&&), (:*), (:+), (:-), (:/), (:/=), (:<), (:<=), (:==), (:>), (:>=), (:||))
-
 import Data.Maybe (Maybe(..))
 import Prelude (Unit, discard)
+import QueryDsl (class SqlType, Constant(..), ParameterizedSql(..), expressionSql, toConstant)
+import QueryDsl.Expressions (avg, avgDistinct, count, countAll, countDistinct, is, isNot, isNotNull, isNull, max, min, negate, not, sum, sumDistinct, (:&&), (:*), (:+), (:-), (:/), (:/=), (:<), (:<=), (:==), (:>), (:>=), (:||))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.Spec (Spec, describe, it)
 
@@ -50,3 +49,25 @@ test = do
       sql `shouldBeSql` ParameterizedSql
         "((((? < ?) and (? <= ?)) and (? > ?)) and (? >= ?))"
         [ c 1, c 2, c 2, c 3, c 4, c 2, c 4, c 4 ]
+
+    describe "Aggregate functions" do
+
+      it "avg" do
+        let sql = expressionSql (avg 1 :+ avgDistinct 2 :+ 3.0)
+        sql `shouldBeSql` ParameterizedSql
+          "((avg(?) + avg(distinct ?)) + ?)" [c 1, c 2, c 3.0]
+
+      it "count" do
+        let sql = expressionSql (count 1 :+ countDistinct 2 :+ countAll)
+        sql `shouldBeSql` ParameterizedSql
+          "((count(?) + count(distinct ?)) + count(*))" [c 1, c 2]
+
+      it "min-max" do
+        let sql = expressionSql (min "a" :< max "b")
+        sql `shouldBeSql` ParameterizedSql
+          "(min(?) < max(?))" [c "a", c "b"]
+
+      it "sum" do
+        let sql = expressionSql (sum 1 :* sumDistinct 2)
+        sql `shouldBeSql` ParameterizedSql
+          "(sum(?) * sum(distinct ?))" [c 1, c 2]

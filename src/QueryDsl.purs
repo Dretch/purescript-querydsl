@@ -47,6 +47,8 @@ module QueryDsl (
   prefixOperator,
   postfixOperator,
   binaryOperator,
+  unaryAggregateFunction,
+  nullaryFunction,
   columns,
   class Query,
   toSql,
@@ -215,6 +217,8 @@ data InsertQuery = InsertQuery TableName (List (Tuple ColumnName Constant))
 data UntypedExpression = PrefixOperatorExpr String UntypedExpression
                        | PostfixOperatorExpr String UntypedExpression
                        | BinaryOperatorExpr String UntypedExpression UntypedExpression
+                       | UnaryAggregateFunctionExpr String Boolean UntypedExpression
+                       | NullaryFunctionExpr String
                        | ConstantExpr Constant
                        | ColumnExpr UnTypedColumn
                        | AlwaysTrueExpr
@@ -483,6 +487,12 @@ postfixOperator op a = Expression $ PostfixOperatorExpr op (untypeExpression $ t
 binaryOperator :: forall a b input result. String -> BinaryOperator a b input result
 binaryOperator op a b = Expression $ BinaryOperatorExpr op (untypeExpression $ toExpression a) (untypeExpression $ toExpression b)
 
+unaryAggregateFunction :: forall a input result. String -> Boolean -> UnaryOperator a input result
+unaryAggregateFunction op distinct a = Expression $ UnaryAggregateFunctionExpr op distinct (untypeExpression $ toExpression a)
+
+nullaryFunction :: forall result. String -> Expression result
+nullaryFunction op = Expression $ NullaryFunctionExpr op
+
 class Query t where
   toSql :: t -> Either ErrorMessage ParameterizedSql
 
@@ -624,6 +634,12 @@ untypedExpressionSql (BinaryOperatorExpr op a b) = do
   sqlA <- untypedExpressionSql a
   sqlB <- untypedExpressionSql b
   pure $ "(" <> sqlA <> " " <> op <> " " <> sqlB <> ")"
+untypedExpressionSql (UnaryAggregateFunctionExpr op distinct a) = do
+  sqlA <- untypedExpressionSql a
+  let prefix = if distinct then "distinct " else ""
+  pure $ op <> "(" <> prefix <> sqlA <> ")"
+untypedExpressionSql (NullaryFunctionExpr op) =
+  pure op
 untypedExpressionSql (ConstantExpr c) =
   constantSql c
 untypedExpressionSql (ColumnExpr (UnTypedColumn tName cName)) =
