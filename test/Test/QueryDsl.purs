@@ -114,8 +114,8 @@ sqlType = do
         toConstant 123.456 `shouldEqual` NumberConstant 123.456
       it "fromConstant" do
         fromConstant (NumberConstant 123.0) `shouldEqual` Just 123.0
+        fromConstant (IntConstant 123) `shouldEqual` Just 123.0
         fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Number
-        fromConstant (IntConstant 123) `shouldEqual` Nothing :: Maybe Number
         fromConstant NullConstant `shouldEqual` Nothing :: Maybe Number
 
     describe "Boolean" do
