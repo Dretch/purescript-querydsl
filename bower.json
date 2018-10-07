@@ -19,6 +19,7 @@
     "purescript-either": "^4.0.0"
   },
   "devDependencies": {
+    "purescript-node-sqlite3": "https://github.com/Dretch/purescript-node-sqlite3.git#master",
     "purescript-quickcheck-laws": "^4.0.0",
     "purescript-spec": "https://github.com/owickstrom/purescript-spec.git#master",
     "purescript-psci-support": "^4.0.0"
