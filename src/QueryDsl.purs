@@ -257,6 +257,8 @@ derive instance eqParameterizedSql :: Eq ParameterizedSql
 instance showParameterizedSql :: Show ParameterizedSql where
   show (ParameterizedSql sql parameters) = show sql <> " with " <> show parameters
 
+-- | An expression that always evaluates to `true`. This is useful when a filtering
+-- | expression argument is required but you don't want to actually filter the result.
 alwaysTrue :: Expression Boolean
 alwaysTrue = Expression AlwaysTrueExpr
 
