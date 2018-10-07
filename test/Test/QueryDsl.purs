@@ -10,6 +10,7 @@ import Prelude (Unit, bind, discard, void, ($))
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
+import Test.QueryDsl.Sqlite as Sqlite
 import Test.QuickCheck.Laws.Control.Apply (checkApply)
 import Test.QuickCheck.Laws.Control.Bind (checkBind)
 import Test.QuickCheck.Laws.Data.Functor (checkFunctor)
@@ -228,3 +229,4 @@ test = do
     sqlType
     selectQueryLaws
     Expressions.test
+    Sqlite.test
