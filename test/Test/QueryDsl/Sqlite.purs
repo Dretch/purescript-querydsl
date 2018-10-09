@@ -2,6 +2,7 @@ module Test.QueryDsl.Sqlite (test) where
 
 import Prelude
 
+import Effect.Aff (bracket)
 import Effect.Class (liftEffect)
 import QueryDsl (Column, SelectQuery, Table, alwaysTrue, columns, deleteFrom, from, insertInto, makeTable, select, update)
 import QueryDsl.Expressions ((:+), (:==), sum)
@@ -34,27 +35,25 @@ selectCount = do
 test :: Spec Unit
 test = do
   it "Sqlite" do
+    bracket (SQLite3.newDB ":memory:") (SQLite3.closeDB >>> liftEffect) \conn -> do
 
-    conn <- SQLite3.newDB ":memory:"
-    void $ SQLite3.queryDB conn createTableSql []
+      void $ SQLite3.queryDB conn createTableSql []
 
-    let t = columns testTable
+      let t = columns testTable
 
-    runQuery conn $ insertInto testTable {name: "jim", count: 5}
-    runQuery conn $ insertInto testTable {name: "jane", count: 42}
-    runQuery conn $ insertInto testTable {name: "jean", count: 7}
+      runQuery conn $ insertInto testTable {name: "jim", count: 5}
+      runQuery conn $ insertInto testTable {name: "jane", count: 42}
+      runQuery conn $ insertInto testTable {name: "jean", count: 7}
 
-    count <- runSelectOneQuery conn selectCount
-    count.n `shouldEqual` 54
+      count <- runSelectOneQuery conn selectCount
+      count.n `shouldEqual` 54
 
-    runQuery conn $ update testTable {count: t.count :+ 1} (t.name :== "jim")
+      runQuery conn $ update testTable {count: t.count :+ 1} (t.name :== "jim")
 
-    count' <- runSelectOneQuery conn selectCount
-    count'.n `shouldEqual` 55
+      count' <- runSelectOneQuery conn selectCount
+      count'.n `shouldEqual` 55
 
-    runQuery conn $ deleteFrom testTable (t.name :== "jean")
+      runQuery conn $ deleteFrom testTable (t.name :== "jean")
 
-    count'' <- runSelectOneQuery conn selectCount
-    count''.n `shouldEqual` 48
-
-    liftEffect $ SQLite3.closeDB conn
+      count'' <- runSelectOneQuery conn selectCount
+      count''.n `shouldEqual` 48
