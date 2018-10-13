@@ -1,4 +1,4 @@
-module QueryDsl.SQLite (
+module QueryDsl.SQLite3 (
   runQuery,
   runSelectManyQuery,
   runSelectOneQuery

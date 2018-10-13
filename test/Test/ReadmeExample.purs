@@ -5,7 +5,7 @@ import Prelude
 import Effect.Aff (Aff)
 import QueryDsl (Column, Table, makeTable, from, select, where_, orderBy, limit, asc)
 import QueryDsl.Expressions ((:==))
-import QueryDsl.SQLite (runSelectManyQuery)
+import QueryDsl.SQLite3 (runSelectManyQuery)
 import SQLite3 (DBConnection)
 import Type.Data.Boolean (False, True)
 
