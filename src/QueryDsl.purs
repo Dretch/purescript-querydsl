@@ -32,6 +32,8 @@ module QueryDsl (
   join,
   select,
   where_,
+  limit,
+  offset,
   OrderingExpression,
   asc,
   desc,
@@ -173,7 +175,9 @@ type SelectTable = {
 data SelectEndpoint (results :: #Type) = SelectEndpoint {
   columns :: List (Tuple ColumnName UntypedExpression),
   where_ :: Expression Boolean,
-  orderBy :: Array OrderingExpression
+  orderBy :: Array OrderingExpression,
+  limit :: Maybe Int,
+  offset :: Maybe Int
 }
 
 -- | An expression that determines how the results are ordered.
@@ -344,7 +348,9 @@ select :: forall exprs results. SelectExpressions exprs results => { | exprs } -
 select exprs = SelectEndpoint {
   columns: getSelectExpressions exprs,
   where_: alwaysTrue,
-  orderBy: []
+  orderBy: [],
+  limit: Nothing,
+  offset: Nothing
 }
 
 -- | Sets the where clause to use on the SelectEndpoint
@@ -354,6 +360,14 @@ where_ (SelectEndpoint se) filter = SelectEndpoint $ se { where_ = filter }
 -- | Sets the ordering to use on the SelectEndpoint
 orderBy :: forall results. SelectEndpoint results -> Array OrderingExpression -> SelectEndpoint results
 orderBy (SelectEndpoint se) orderBy' = SelectEndpoint $ se { orderBy = orderBy' }
+
+-- | Sets the limit (maximum number of rows in the result) to use on the SelectEndpoint.
+limit :: forall results. SelectEndpoint results -> Int -> SelectEndpoint results
+limit (SelectEndpoint se) n = SelectEndpoint $ se { limit = Just n }
+
+-- | Sets the offset (how many rows to skip from the result) to use on the SelectEndpoint.
+offset :: forall results. SelectEndpoint results -> Int -> SelectEndpoint results
+offset (SelectEndpoint se) n = SelectEndpoint $ se { offset = Just n }
 
 class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
   getInsertExpressions :: { | exprs } -> List (Tuple ColumnName Constant)
@@ -519,7 +533,8 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
         fc <- fromClause
         wc <- whereClauseSql endpoint.where_
         ob <- orderByClause
-        pure $ "select " <> sc <> " from " <> fc <> wc <> ob
+        lc <- limitClause
+        pure $ "select " <> sc <> " from " <> fc <> wc <> ob <> lc
         where
           selectClause = joinCsv <$> traverse selectCol endpoint.columns
 
@@ -548,6 +563,19 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
 
           orderByExpr (Asc e) = (_ <> " asc") <$> untypedExpressionSql e
           orderByExpr (Desc e) = (_ <> " desc") <$> untypedExpressionSql e
+
+          limitClause = case endpoint.limit, endpoint.offset of
+            Just l, Just o -> do
+              tell [IntConstant l, IntConstant o]
+              pure " limit ? offset ?"
+            Just l, Nothing -> do
+              tell [IntConstant l]
+              pure " limit ?"
+            Nothing, Just o -> do
+              tell [IntConstant o]
+              pure " limit -1 offset ?"
+            Nothing, Nothing ->
+              pure ""
 
           aliasSql name alias =
             tableNameSql name <> " as " <> tableNameSql alias

@@ -39,6 +39,21 @@ filteredSelectQuery = do
   t <- from testTable
   pure $ select {id: t.id} `where_` (t.id :== "abc")
 
+selectQueryWithLimit :: SelectQuery (id :: String)
+selectQueryWithLimit = do
+  t <- from testTable
+  pure $ select {id: t.id} `limit` 10
+
+selectQueryWithOffset :: SelectQuery (id :: String)
+selectQueryWithOffset = do
+  t <- from testTable
+  pure $ select {id: t.id} `offset` 50
+
+selectQueryWithLimitAndOffset :: SelectQuery (id :: String)
+selectQueryWithLimitAndOffset = do
+  t <- from testTable
+  pure $ select {id: t.id} `limit` 10 `offset` 50
+
 expressiveSelectQuery :: SelectQuery (id :: String, count :: Int)
 expressiveSelectQuery = do
   t <- from testTable
@@ -164,6 +179,18 @@ sqlGeneration = do
     it "selectQueryWithOrderBy" do
       toSql selectQueryWithOrderBy `shouldBeSql` ParameterizedSql
         "select a.id from test as a order by a.description asc, a.id desc" []
+
+    it "selectQueryWithLimit" do
+      toSql selectQueryWithLimit `shouldBeSql` ParameterizedSql
+        "select a.id from test as a limit ?" [c 10]
+
+    it "selectQueryWithOffset" do
+      toSql selectQueryWithOffset `shouldBeSql` ParameterizedSql
+        "select a.id from test as a limit -1 offset ?" [c 50]
+
+    it "selectQueryWithLimitAndOffset" do
+      toSql selectQueryWithLimitAndOffset `shouldBeSql` ParameterizedSql
+        "select a.id from test as a limit ? offset ?" [c 10, c 50]
 
     it "selectQueryWithNoFrom" do
       toSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial table"
