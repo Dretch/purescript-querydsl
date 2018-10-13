@@ -1,11 +1,18 @@
-An unfinished experimental SQL query builder for Purescript, loosely based on Java's Querydsl (http://www.querydsl.com/).
+A SQL query builder for Purescript, loosely based on Java's Querydsl (http://www.querydsl.com/).
 
-The goal is to allow building SQL in a type-safe and composable way, ideally with comprehensible types signatures.
+# Goals
+ - Support standard SQL insert/update/delete/select queries.
+ - Allow building queries in a mostly type-safe and composable way.
+ - Generate reasonably readable SQL for monitoring and debugging.
+ - Support multiple underlying databases platforms.
 
-# Features
- - Various combinators for creating type-checked predicates for selects/deletes.
- - Column names and types checked for insertions.
- - Generates reasonably readable SQL for monitoring and debugging.
+# Non-Goals
+ - Support create table syntax: these tend to be very database specific.
+ - 100% static type safety: sometimes static type safety is at odds with ease of use.
+
+# Status
+- Experimental, pre-alpha, full of bugs, lacking in features, unstable, don't rely on this, etc.
+- Currently only SQLite is supported.
 
 # Example
 ```purescript
