@@ -32,6 +32,10 @@ module QueryDsl (
   join,
   select,
   where_,
+  OrderingExpression,
+  asc,
+  desc,
+  orderBy,
   update,
   insertInto,
   deleteFrom,
@@ -168,8 +172,13 @@ type SelectTable = {
 -- | The select columns and the where clause part of a select query
 data SelectEndpoint (results :: #Type) = SelectEndpoint {
   columns :: List (Tuple ColumnName UntypedExpression),
-  where_ :: Expression Boolean
+  where_ :: Expression Boolean,
+  orderBy :: Array OrderingExpression
 }
+
+-- | An expression that determines how the results are ordered.
+data OrderingExpression = Asc UntypedExpression
+                        | Desc UntypedExpression
 
 data UpdateQuery = UpdateQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
 
@@ -267,6 +276,14 @@ makeTable name =
 columns :: forall cols. Table cols -> { | cols }
 columns (Table name rec) = rec name
 
+-- | Create an OrderingExpression that says to order by the given expression in ascending order
+asc :: forall a b. ToExpression a b => a -> OrderingExpression
+asc e = Asc $ untypeExpression $ toExpression e
+
+-- | Create an OrderingExpression that says to order by the given expression in descending order
+desc :: forall a b. ToExpression a b => a -> OrderingExpression
+desc e = Desc $ untypeExpression $ toExpression e
+
 -- | Starts a SelectTableBuilder by specifying the initial table.
 from :: forall cols. Table cols -> SelectTableBuilder { | cols }
 from table = SelectTableBuilder $ addTable table Nothing
@@ -324,11 +341,19 @@ instance applySelectExpressionsCons
 
 -- | Creates a new SelectEndpoint with the given selected columns
 select :: forall exprs results. SelectExpressions exprs results => { | exprs } -> SelectEndpoint results
-select exprs = SelectEndpoint { columns: getSelectExpressions exprs, where_: alwaysTrue }
+select exprs = SelectEndpoint {
+  columns: getSelectExpressions exprs,
+  where_: alwaysTrue,
+  orderBy: []
+}
 
 -- | Sets the where clause to use on the SelectEndpoint
 where_ :: forall results. SelectEndpoint results -> Expression Boolean -> SelectEndpoint results
 where_ (SelectEndpoint se) filter = SelectEndpoint $ se { where_ = filter }
+
+-- | Sets the ordering to use on the SelectEndpoint
+orderBy :: forall results. SelectEndpoint results -> Array OrderingExpression -> SelectEndpoint results
+orderBy (SelectEndpoint se) orderBy' = SelectEndpoint $ se { orderBy = orderBy' }
 
 class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
   getInsertExpressions :: { | exprs } -> List (Tuple ColumnName Constant)
@@ -493,7 +518,8 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
         sc <- selectClause
         fc <- fromClause
         wc <- whereClauseSql endpoint.where_
-        pure $ "select " <> sc <> " from " <> fc <> wc
+        ob <- orderByClause
+        pure $ "select " <> sc <> " from " <> fc <> wc <> ob
         where
           selectClause = joinCsv <$> traverse selectCol endpoint.columns
 
@@ -515,6 +541,13 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
             pure $ " join " <> aliasSql table alias <> " on " <> e
           joinClause {table, alias, expr: Nothing} =
             pure $ " cross join " <> aliasSql table alias
+
+          orderByClause = case endpoint.orderBy of
+            [] -> pure $ ""
+            exprs -> (" order by " <> _) <$> joinCsv <$> traverse orderByExpr exprs
+
+          orderByExpr (Asc e) = (_ <> " asc") <$> untypedExpressionSql e
+          orderByExpr (Desc e) = (_ <> " desc") <$> untypedExpressionSql e
 
           aliasSql name alias =
             tableNameSql name <> " as " <> tableNameSql alias

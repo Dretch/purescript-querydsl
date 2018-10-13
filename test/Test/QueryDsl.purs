@@ -50,6 +50,11 @@ simpleJoinSelectQuery = do
   j <- join testChildTable (\j -> j.id :== t.id)
   pure $ select {tId: t.id, jId: j.id, extra: j.extra} `where_` (t.id :/= "sdf")
 
+selectQueryWithOrderBy :: SelectQuery (id :: String)
+selectQueryWithOrderBy = do
+  t <- from testTable
+  pure $ select {id: t.id} `orderBy` [asc t.description, desc t.id]
+
 selectQueryWithNoFrom :: SelectQuery (id :: String)
 selectQueryWithNoFrom =
   let t = columns testTable in
@@ -155,6 +160,10 @@ sqlGeneration = do
     it "selfJoinSelectQuery" do
       toSql selfJoinSelectQuery `shouldBeSql` ParameterizedSql
         "select a.id as aId, b.id as bId from test as a join test as b on (b.id = a.id)" []
+
+    it "selectQueryWithOrderBy" do
+      toSql selectQueryWithOrderBy `shouldBeSql` ParameterizedSql
+        "select a.id from test as a order by a.description asc, a.id desc" []
 
     it "selectQueryWithNoFrom" do
       toSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial table"
