@@ -9,7 +9,7 @@ import Prelude (Unit, bind, discard, pure, ($))
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
-import Test.QueryDsl.Sqlite as Sqlite
+import Test.QueryDsl.SQLite3 as SQLite3
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Data.Boolean (False, True)
@@ -244,4 +244,4 @@ test = do
     resultGeneration
     sqlType
     Expressions.test
-    Sqlite.test
+    SQLite3.test
