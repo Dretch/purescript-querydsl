@@ -9,6 +9,8 @@ module QueryDsl (
   Column,
   ColumnName,
   SelectQuery,
+  SelectTableBuilder,
+  SelectEndpoint,
   UpdateQuery,
   InsertQuery,
   DeleteQuery,
@@ -29,6 +31,7 @@ module QueryDsl (
   from,
   join,
   select,
+  where_,
   update,
   insertInto,
   deleteFrom,
@@ -60,6 +63,7 @@ module QueryDsl (
 
 import Prelude
 
+import Control.Monad.State (State, runState, get, put)
 import Control.Monad.Writer (Writer, runWriter, tell)
 import Data.Array as Array
 import Data.Either (Either(..))
@@ -70,17 +74,13 @@ import Data.List as List
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Data.NonEmpty ((:|))
 import Data.String (joinWith)
 import Data.String.CodeUnits (charAt, singleton)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst, snd, uncurry)
 import Prim.Row (class Cons, class Lacks)
-import Random.LCG as LCG
 import Record as Record
-import Test.QuickCheck.Arbitrary (class Arbitrary, arbitrary)
-import Test.QuickCheck.Gen as Gen
 import Type.Data.Boolean (kind Boolean, False, True)
 import Type.Row (class RowToList, Cons, Nil, RLProxy(..), RProxy(..), kind RowList)
 
@@ -149,65 +149,27 @@ data UnTypedColumn = UnTypedColumn TableName ColumnName
 newtype Column typ (required :: Boolean) = Column UnTypedColumn
 
 -- | A query that selects data, with the type of the columns in the result represented in the type of the SelectQuery
-data SelectQuery (results :: #Type) a =
-    FromSelectQuery TableName (TableName -> a)
-  | JoinSelectQuery TableName (TableName -> a) (TableName -> Expression Boolean)
-  | BindFromSelectQuery TableName (TableName -> SelectQuery results a)
-  | BindJoinSelectQuery TableName (TableName -> SelectQuery results a) (TableName -> Expression Boolean)
-  | SelectSelectQuery (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
-  | InvalidSelectQuery
+type SelectQuery results = SelectTableBuilder (SelectEndpoint results)
 
-instance functorSelectQuery :: Functor (SelectQuery results) where
-  map f (FromSelectQuery tName a) = FromSelectQuery tName (a >>> f)
-  map f (JoinSelectQuery tName a expr) = JoinSelectQuery tName (a >>> f) expr
-  map f (SelectSelectQuery cols filter) = SelectSelectQuery cols filter
-  map f (BindFromSelectQuery tName tail) = BindFromSelectQuery tName (tail >>> map f)
-  map f (BindJoinSelectQuery tName tail expr) = BindJoinSelectQuery tName (tail >>> map f) expr
-  map f InvalidSelectQuery = InvalidSelectQuery
+-- | A Monad for constructing a SQL from/join clause
+newtype SelectTableBuilder a = SelectTableBuilder (State (List SelectTable) a)
 
-instance applySelectQuery :: Apply (SelectQuery results) where
-  apply _ _ = InvalidSelectQuery
+derive newtype instance functorSelectTableBuilder :: Functor SelectTableBuilder
+derive newtype instance applySelectTableBuilder :: Apply SelectTableBuilder
+derive newtype instance applicativeSelectTableBuilder :: Applicative SelectTableBuilder
+derive newtype instance bindSelectTableBuilder :: Bind SelectTableBuilder
 
-instance bindSelectQuery :: Bind (SelectQuery results) where
-  bind (FromSelectQuery tName a) cmd =
-    BindFromSelectQuery tName (\tName' -> cmd (a tName'))
-  bind (JoinSelectQuery tName a expr) cmd =
-    BindJoinSelectQuery tName (\tName' -> cmd (a tName')) expr
-  bind (SelectSelectQuery cols filter) cmd =
-    InvalidSelectQuery
-  bind (BindFromSelectQuery tName f) cmd =
-    BindFromSelectQuery tName (\tName' -> f tName' >>= cmd)
-  bind (BindJoinSelectQuery tName f expr) cmd =
-    BindJoinSelectQuery tName (\tName' -> f tName' >>= cmd) expr
-  bind InvalidSelectQuery cmd =
-    InvalidSelectQuery
+type SelectTable = {
+  table :: TableName,
+  alias :: TableName,
+  expr :: Maybe (Expression Boolean)
+}
 
-instance eqSelectQuery :: Eq (SelectQuery results a) where
-  eq a b = toSql a == toSql b
-
-instance arbitrarySelectQuery :: Arbitrary a => Arbitrary (SelectQuery results a) where
-
-  arbitrary = arbitrary' 5
-    where
-      arbitrary' depth =
-        Gen.oneOf (
-          pure InvalidSelectQuery :| [
-            pure $ FromSelectQuery tName (const arbitraryA),
-            pure $ JoinSelectQuery tName (const arbitraryA) (const alwaysTrue),
-            pure $ SelectSelectQuery Nil alwaysTrue
-          ] <> recursives depth
-        )
-
-      recursives depth | depth <= 0 = []
-      recursives depth | otherwise =
-        let next = arbitrary' (depth - 1) in [
-          next >>= \child -> pure $ BindFromSelectQuery tName (const child),
-          next >>= \child -> pure $ BindJoinSelectQuery tName (const child) (const alwaysTrue)
-        ]
-
-      tName = TableName "test"
-
-      arbitraryA = Gen.evalGen arbitrary { newSeed: LCG.mkSeed 1, size: 1 }
+-- | The select columns and the where clause part of a select query
+data SelectEndpoint (results :: #Type) = SelectEndpoint {
+  columns :: List (Tuple ColumnName UntypedExpression),
+  where_ :: Expression Boolean
+}
 
 data UpdateQuery = UpdateQuery TableName (List (Tuple ColumnName UntypedExpression)) (Expression Boolean)
 
@@ -305,14 +267,21 @@ makeTable name =
 columns :: forall cols. Table cols -> { | cols }
 columns (Table name rec) = rec name
 
--- | Starts a SelectQuery by specifying the initial table.
-from :: forall cols results. Table cols -> SelectQuery results { | cols }
-from (Table tName cols) = FromSelectQuery tName cols
+-- | Starts a SelectTableBuilder by specifying the initial table.
+from :: forall cols. Table cols -> SelectTableBuilder { | cols }
+from table = SelectTableBuilder $ addTable table Nothing
 
--- | Extends a SelectQuery by specifying a join table.
-join :: forall cols results. Table cols -> ({ | cols } -> Expression Boolean) -> SelectQuery results { | cols }
-join (Table tName cols) expr =
-  JoinSelectQuery tName cols (\tName' -> expr $ cols tName')
+-- | Extends a SelectTableBuilder by specifying a join table.
+join :: forall cols. Table cols -> ({ | cols } -> Expression Boolean) -> SelectTableBuilder { | cols }
+join table expr = SelectTableBuilder $ addTable table $ Just expr
+
+addTable :: forall cols. Table cols -> Maybe ({ | cols } -> Expression Boolean) -> State (List SelectTable) { | cols }
+addTable (Table table cols) expr = do
+  tables <- get
+  let alias = makeAlias (List.length tables)
+      cols' = cols alias
+  put ({ table, alias, expr: (cols' # _) <$> expr } : tables)
+  pure cols'
 
 class SelectExpressions (exprs :: #Type) (result :: #Type) | exprs -> result where
   getSelectExpressions :: { | exprs } -> List (Tuple ColumnName UntypedExpression)
@@ -353,9 +322,13 @@ instance applySelectExpressionsCons
           (tailExprs :: { | exprsRTail })
           (RLProxy :: RLProxy resultsRLTail)
 
--- | Finishes a SelectQuery by defining which columns to return, and the where-clause to use.
-select :: forall exprs results. SelectExpressions exprs results => { | exprs } -> Expression Boolean -> SelectQuery results Unit
-select exprs filter = SelectSelectQuery (getSelectExpressions exprs) filter
+-- | Creates a new SelectEndpoint with the given selected columns
+select :: forall exprs results. SelectExpressions exprs results => { | exprs } -> SelectEndpoint results
+select exprs = SelectEndpoint { columns: getSelectExpressions exprs, where_: alwaysTrue }
+
+-- | Sets the where clause to use on the SelectEndpoint
+where_ :: forall results. SelectEndpoint results -> Expression Boolean -> SelectEndpoint results
+where_ (SelectEndpoint se) filter = SelectEndpoint $ se { where_ = filter }
 
 class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
   getInsertExpressions :: { | exprs } -> List (Tuple ColumnName Constant)
@@ -502,57 +475,27 @@ class Query t where
 
 type SqlWriter = Writer (Array Constant) String
 
-type AliasedTable = {
-  name :: TableName,
-  alias :: TableName
-}
-
-type JoinedTables = List (Tuple AliasedTable (Expression Boolean))
-
-type FullSelectQuery = {
-  rootTable :: AliasedTable,
-  joinedTables :: List (Tuple AliasedTable (Expression Boolean)),
-  cols :: List (Tuple ColumnName UntypedExpression),
-  filter :: Expression Boolean
-}
-
-instance querySelectQuery :: Query (SelectQuery cols a) where
-  toSql query = do
-      full <- toFull query
-      Right $ uncurry ParameterizedSql $ runWriter $ toWriter full
+instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results)) where
+  toSql (SelectTableBuilder builder) = do
+      writer <- uncurry toWriter $ runState builder Nil
+      Right $ uncurry ParameterizedSql $ runWriter writer
     where
-      toFull :: SelectQuery cols a -> Either String FullSelectQuery
-      toFull (BindFromSelectQuery table tail) =
-        let alias = makeAlias 0
-            inner = tail alias
-        in toFull' { name: table, alias } Nil inner
-      toFull _ =
-        Left "SQL query is missing initial from-clause"
+      toWriter :: SelectEndpoint results -> List SelectTable -> Either ErrorMessage SqlWriter
+      toWriter endpoint tables  =
+        uncurry (toWriter' endpoint) <$> splitRootTable (List.reverse tables)
 
-      toFull' :: AliasedTable -> JoinedTables -> SelectQuery cols a -> Either ErrorMessage FullSelectQuery
-      toFull' rootTable joinedTables (BindJoinSelectQuery table tail expr) =
-        let alias = makeAlias $ List.length joinedTables + 1
-            inner = tail alias
-            joinTable = Tuple { name: table, alias } $ expr alias
-        in toFull' rootTable (joinTable : joinedTables) inner
-      toFull' rootTable joinedTables (SelectSelectQuery cols filter) =
-        Right {
-          rootTable,
-          joinedTables: List.reverse joinedTables,
-          cols,
-          filter
-        }
-      toFull' _ _ _ =
-        Left "SQL query is missing join or select clause"
+      splitRootTable :: List SelectTable -> Either ErrorMessage (Tuple SelectTable (List SelectTable))
+      splitRootTable (t@{ expr: Nothing } : ts) = Right $ Tuple t ts
+      splitRootTable _ = Left "SQL query is missing initial table"
 
-      toWriter :: FullSelectQuery -> SqlWriter
-      toWriter { rootTable, joinedTables, cols, filter } = do
+      toWriter' :: SelectEndpoint results -> SelectTable -> List SelectTable -> SqlWriter
+      toWriter' (SelectEndpoint endpoint) rootTable joinedTables = do
         sc <- selectClause
         fc <- fromClause
-        wc <- whereClauseSql filter
+        wc <- whereClauseSql endpoint.where_
         pure $ "select " <> sc <> " from " <> fc <> wc
         where
-          selectClause = joinCsv <$> traverse selectCol cols
+          selectClause = joinCsv <$> traverse selectCol endpoint.columns
 
           selectCol (Tuple cName (ColumnExpr (UnTypedColumn tName' cName'))) =
             let start = tableColumnNameSql tName' cName'
@@ -565,13 +508,15 @@ instance querySelectQuery :: Query (SelectQuery cols a) where
 
           fromClause = do
             jc <- joinSpace <$> traverse joinClause joinedTables
-            pure $ aliasSql rootTable <> jc
+            pure $ aliasSql rootTable.table rootTable.alias <> jc
 
-          joinClause (Tuple alias expr) = do
-            e <- expressionSql' expr
-            pure $ " join " <> aliasSql alias <> " on " <> e
+          joinClause {table, alias, expr: Just expr'} = do
+            e <- expressionSql' expr'
+            pure $ " join " <> aliasSql table alias <> " on " <> e
+          joinClause {table, alias, expr: Nothing} =
+            pure $ " cross join " <> aliasSql table alias
 
-          aliasSql { name, alias } =
+          aliasSql name alias =
             tableNameSql name <> " as " <> tableNameSql alias
 
 makeAlias :: Int -> TableName

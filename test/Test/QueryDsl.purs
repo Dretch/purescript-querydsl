@@ -5,19 +5,14 @@ import QueryDsl
 import Data.Either (Either(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Effect.Class (liftEffect)
-import Prelude (Unit, bind, discard, void, ($))
+import Prelude (Unit, bind, discard, pure, ($))
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
 import Test.QueryDsl.Sqlite as Sqlite
-import Test.QuickCheck.Laws.Control.Apply (checkApply)
-import Test.QuickCheck.Laws.Control.Bind (checkBind)
-import Test.QuickCheck.Laws.Data.Functor (checkFunctor)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Data.Boolean (False, True)
-import Type.Proxy (Proxy2(..))
 import Type.Row (RProxy(..))
 
 c :: forall t. SqlType t => t -> Constant
@@ -34,41 +29,37 @@ testChildTable = makeTable "child" :: Table (
   extra :: Column String True
 )
 
-simpleSelectQuery :: SelectQuery (id :: String, count :: Int) Unit
+simpleSelectQuery :: SelectQuery (id :: String, count :: Int)
 simpleSelectQuery = do
   t <- from testTable
-  select {id: t.id, count: t.count} alwaysTrue
+  pure $ select {id: t.id, count: t.count}
 
-filteredSelectQuery :: SelectQuery (id :: String) Unit
+filteredSelectQuery :: SelectQuery (id :: String)
 filteredSelectQuery = do
   t <- from testTable
-  select {id: t.id} (t.id :== "abc")
+  pure $ select {id: t.id} `where_` (t.id :== "abc")
 
-expressiveSelectQuery :: SelectQuery (id :: String, count :: Int) Unit
+expressiveSelectQuery :: SelectQuery (id :: String, count :: Int)
 expressiveSelectQuery = do
   t <- from testTable
-  select {id: t.id, count: t.count :+ 1} alwaysTrue
+  pure $ select {id: t.id, count: t.count :+ 1}
 
-simpleJoinSelectQuery :: SelectQuery (jId :: String, tId :: String, extra :: String) Unit
+simpleJoinSelectQuery :: SelectQuery (jId :: String, tId :: String, extra :: String)
 simpleJoinSelectQuery = do
   t <- from testTable
   j <- join testChildTable (\j -> j.id :== t.id)
-  select {tId: t.id, jId: j.id, extra: j.extra} (t.id :/= "sdf")
+  pure $ select {tId: t.id, jId: j.id, extra: j.extra} `where_` (t.id :/= "sdf")
 
-selectQueryWithNoFrom :: SelectQuery (id :: String) Unit
+selectQueryWithNoFrom :: SelectQuery (id :: String)
 selectQueryWithNoFrom =
   let t = columns testTable in
-  select {id: t.id} alwaysTrue
+  pure $ select {id: t.id}
 
-selectQueryWithNoSelect :: SelectQuery (id :: String) Unit
-selectQueryWithNoSelect =
-  void $ from testTable
-
-selfJoinSelectQuery :: SelectQuery (aId :: String, bId ::String) Unit
+selfJoinSelectQuery :: SelectQuery (aId :: String, bId ::String)
 selfJoinSelectQuery = do
   a <- from testTable
   b <- join testTable (\b -> b.id :== a.id)
-  select {aId: a.id, bId: b.id} alwaysTrue
+  pure $ select {aId: a.id, bId: b.id}
 
 filteredUpdateQuery :: UpdateQuery
 filteredUpdateQuery =
@@ -140,14 +131,6 @@ sqlType = do
         fromConstant (IntConstant 123) `shouldEqual` Just (Just 123)
         fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
 
-selectQueryLaws :: Spec Unit
-selectQueryLaws = do
-  describe "SelectQuery laws" do
-    let proxy = Proxy2 :: Proxy2 (SelectQuery ())
-    it "Functor" $ liftEffect $ checkFunctor proxy
-    it "Apply" $ liftEffect $ checkApply proxy
-    it "Bind" $ liftEffect $ checkBind proxy
-
 sqlGeneration :: Spec Unit
 sqlGeneration = do
   describe "toSql" do
@@ -174,10 +157,7 @@ sqlGeneration = do
         "select a.id as aId, b.id as bId from test as a join test as b on (b.id = a.id)" []
 
     it "selectQueryWithNoFrom" do
-      toSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial from-clause"
-
-    it "selectQueryWithNoSelect" do
-      toSql selectQueryWithNoSelect `shouldEqual` Left "SQL query is missing initial from-clause"
+      toSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial table"
 
     it "filteredDeleteQuery" do
       toSql filteredDeleteQuery `shouldBeSql` ParameterizedSql
@@ -227,6 +207,5 @@ test = do
     sqlGeneration
     resultGeneration
     sqlType
-    selectQueryLaws
     Expressions.test
     Sqlite.test

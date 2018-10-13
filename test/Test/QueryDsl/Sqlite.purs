@@ -4,7 +4,7 @@ import Prelude
 
 import Effect.Aff (bracket)
 import Effect.Class (liftEffect)
-import QueryDsl (Column, SelectQuery, Table, alwaysTrue, columns, deleteFrom, from, insertInto, makeTable, select, update)
+import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertInto, makeTable, select, update)
 import QueryDsl.Expressions ((:+), (:==), sum)
 import QueryDsl.SQLite (runQuery, runSelectOneQuery)
 import SQLite3 as SQLite3
@@ -27,10 +27,10 @@ testTable = makeTable "test" :: Table (
   count :: Column Int True
 )
 
-selectCount :: SelectQuery (n :: Int) Unit
+selectCount :: SelectQuery (n :: Int)
 selectCount = do
   t <- from testTable
-  select {n: sum t.count} alwaysTrue
+  pure $ select {n: sum t.count}
 
 test :: Spec Unit
 test = do
