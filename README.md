@@ -1,4 +1,4 @@
-# Purescript QueryDsl [![Build Status](https://travis-ci.org/Dretch/purescript-querydsl.svg?branch=master)](https://travis-ci.org/Dretch/purescript-querydsl)
+# Purescript QueryDsl [![Build Status](https://travis-ci.org/Dretch/purescript-querydsl.svg?branch=master)](https://travis-ci.org/Dretch/purescript-querydsl) [![Documentation](https://pursuit.purescript.org/packages/purescript-querydsl/badge)](https://pursuit.purescript.org/packages/purescript-querydsl)
 
 A SQL query builder for Purescript, loosely based on Java's [Querydsl](http://www.querydsl.com/).
 
