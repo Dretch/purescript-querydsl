@@ -1,5 +1,6 @@
 {
   "name": "purescript-querydsl",
+  "license": "WTFPL",
   "ignore": [
     "**/.*",
     "node_modules",
@@ -22,5 +23,9 @@
     "purescript-spec": "https://github.com/owickstrom/purescript-spec.git#master",
     "purescript-psci-support": "^4.0.0",
     "purescript-node-sqlite3": "^3.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dretch/purescript-querydsl.git"
   }
 }
