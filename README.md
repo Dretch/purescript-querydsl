@@ -1,22 +1,22 @@
-[![Build Status](https://travis-ci.org/Dretch/purescript-querydsl.svg?branch=master)](https://travis-ci.org/Dretch/purescript-querydsl)
+# Purescript QueryDsl [![Build Status](https://travis-ci.org/Dretch/purescript-querydsl.svg?branch=master)](https://travis-ci.org/Dretch/purescript-querydsl)
 
-A SQL query builder for Purescript, loosely based on Java's Querydsl (http://www.querydsl.com/).
+A SQL query builder for Purescript, loosely based on Java's [Querydsl](http://www.querydsl.com/).
 
-# Goals
+## Goals
  - Support standard SQL insert/update/delete/select queries.
  - Allow building queries in a mostly type-safe and composable way.
  - Generate reasonably readable SQL for monitoring and debugging.
  - Support multiple underlying databases platforms.
 
-# Non-Goals
+## Non-Goals
  - Support create table syntax: these tend to be very database specific.
  - 100% static type safety: sometimes static type safety is at odds with ease of use.
 
-# Status
+## Status
 - Experimental, pre-alpha, full of bugs, lacking in features, unstable, don't rely on this, etc.
 - Currently only SQLite is supported.
 
-# Example
+## Example
 ```purescript
 import Prelude
 import Effect.Aff (Aff)
