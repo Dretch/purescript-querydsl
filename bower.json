@@ -17,12 +17,12 @@
     "purescript-tuples": "^5.0.0",
     "purescript-typelevel-prelude": "^3.0.0",
     "purescript-either": "^4.0.0",
-    "purescript-transformers": "^4.1.0"
+    "purescript-transformers": "^4.1.0",
+    "purescript-node-sqlite3": "^3.1.0"
   },
   "devDependencies": {
     "purescript-spec": "https://github.com/owickstrom/purescript-spec.git#master",
-    "purescript-psci-support": "^4.0.0",
-    "purescript-node-sqlite3": "^3.1.0"
+    "purescript-psci-support": "^4.0.0"
   },
   "repository": {
     "type": "git",
