@@ -35,7 +35,7 @@ selectCount = do
 test :: Spec Unit
 test = do
   it "Sqlite" do
-    bracket (SQLite3.newDB ":memory:") (SQLite3.closeDB >>> liftEffect) \conn -> do
+    bracket (SQLite3.newDB ":memory:") SQLite3.closeDB \conn -> do
 
       void $ SQLite3.queryDB conn createTableSql []
 
