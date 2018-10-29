@@ -72,19 +72,22 @@ import Prelude
 import Control.Monad.State (State, runState, get, put)
 import Control.Monad.Writer (Writer, runWriter, tell)
 import Data.Array as Array
-import Data.Either (Either(..))
+import Data.DateTime (DateTime)
+import Data.Either (Either(..), hush)
 import Data.Foldable (class Foldable)
+import Data.Formatter.DateTime (Formatter, format, parseFormatString, unformat)
 import Data.Int as Int
 import Data.List (List(..), (:))
 import Data.List as List
 import Data.Map (Map)
 import Data.Map as Map
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromJust)
 import Data.String (joinWith)
 import Data.String.CodeUnits (charAt, singleton)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst, snd, uncurry)
+import Partial.Unsafe (unsafePartial)
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
 import Type.Data.Boolean (kind Boolean, False, True)
@@ -130,6 +133,15 @@ instance sqlTypeBoolean :: SqlType Boolean where
   toConstant false = IntConstant 0
   fromConstant (IntConstant 0) = Just false
   fromConstant (IntConstant _) = Just true
+  fromConstant _ = Nothing
+
+dateTimeFormatter :: Formatter
+dateTimeFormatter =
+  unsafePartial $ fromJust $ hush $ parseFormatString "YYYY-MM-DDTHH:mm:ss.SSSZ"
+
+instance sqlTypeDateTime :: SqlType DateTime where
+  toConstant dt = StringConstant $ format dateTimeFormatter dt
+  fromConstant (StringConstant s) =  hush $ unformat dateTimeFormatter s
   fromConstant _ = Nothing
 
 instance sqlTypeMaybe :: SqlType a => SqlType (Maybe a) where

@@ -2,10 +2,14 @@ module Test.QueryDsl (test) where
 
 import QueryDsl
 
+import Data.DateTime (DateTime)
+import Data.DateTime.Instant (instant, toDateTime)
 import Data.Either (Either(..))
 import Data.Map as Map
-import Data.Maybe (Maybe(..))
-import Prelude (Unit, bind, discard, pure, ($))
+import Data.Maybe (Maybe(..), fromJust)
+import Data.Time.Duration (Milliseconds(..))
+import Partial.Unsafe (unsafePartial)
+import Prelude (Unit, bind, discard, pure, ($), negate)
 import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
@@ -150,6 +154,17 @@ sqlType = do
         fromConstant NullConstant `shouldEqual` Just (Nothing :: Maybe Int)
         fromConstant (IntConstant 123) `shouldEqual` Just (Just 123)
         fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
+
+    describe "DateTime" do
+      let testDateString = "1832-01-27T14:00:20.012Z"
+          testDate = toDateTime $ unsafePartial $ fromJust $ instant $ Milliseconds $ -4352608779988.0
+      it "toConstant" do
+        toConstant testDate `shouldEqual` StringConstant testDateString
+      it "fromConstant" do
+        fromConstant (StringConstant testDateString) `shouldEqual` Just testDate
+        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe DateTime
+        fromConstant (IntConstant 123) `shouldEqual` Nothing :: Maybe DateTime
+        fromConstant NullConstant `shouldEqual` Nothing :: Maybe DateTime
 
 sqlGeneration :: Spec Unit
 sqlGeneration = do
