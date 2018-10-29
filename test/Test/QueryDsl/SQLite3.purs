@@ -3,7 +3,6 @@ module Test.QueryDsl.SQLite3 (test) where
 import Prelude
 
 import Effect.Aff (bracket)
-import Effect.Class (liftEffect)
 import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertInto, makeTable, select, update)
 import QueryDsl.Expressions ((:+), (:==), sum)
 import QueryDsl.SQLite3 (runQuery, runSelectOneQuery)
