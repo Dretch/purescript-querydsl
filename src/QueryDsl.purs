@@ -38,6 +38,8 @@ module QueryDsl (
   asc,
   desc,
   orderBy,
+  groupBy,
+  having,
   update,
   insertInto,
   deleteFrom,
@@ -188,6 +190,8 @@ data SelectEndpoint (results :: #Type) = SelectEndpoint {
   columns :: List (Tuple ColumnName UntypedExpression),
   where_ :: Expression Boolean,
   orderBy :: Array OrderingExpression,
+  groupBy :: Array UntypedExpression,
+  having :: Expression Boolean,
   limit :: Maybe Int,
   offset :: Maybe Int
 }
@@ -365,25 +369,42 @@ select exprs = SelectEndpoint {
   columns: getSelectExpressions exprs,
   where_: alwaysTrue,
   orderBy: [],
+  groupBy: [],
+  having: alwaysTrue,
   limit: Nothing,
   offset: Nothing
 }
 
 -- | Sets the where clause to use on the SelectEndpoint
 where_ :: forall results. SelectEndpoint results -> Expression Boolean -> SelectEndpoint results
-where_ (SelectEndpoint se) filter = SelectEndpoint $ se { where_ = filter }
+where_ (SelectEndpoint se) filter =
+  SelectEndpoint $ se { where_ = filter }
 
 -- | Sets the ordering to use on the SelectEndpoint
 orderBy :: forall results. SelectEndpoint results -> Array OrderingExpression -> SelectEndpoint results
-orderBy (SelectEndpoint se) orderBy' = SelectEndpoint $ se { orderBy = orderBy' }
+orderBy (SelectEndpoint se) orderBy' =
+  SelectEndpoint $ se { orderBy = orderBy' }
+
+-- | Adds a column to the group by clause - note this function is cumulative:
+-- | call it multiple times to group by more than one expression.
+groupBy :: forall results a b. ToExpression a b => SelectEndpoint results -> a -> SelectEndpoint results
+groupBy (SelectEndpoint se) e =
+  SelectEndpoint $ se { groupBy = se.groupBy <> [untypeExpression $ toExpression e] }
+
+-- | Sets the having expression to use on the SelectEndpoint.
+having :: forall results. SelectEndpoint results -> Expression Boolean -> SelectEndpoint results
+having (SelectEndpoint se) filter =
+  SelectEndpoint $ se { having = filter }
 
 -- | Sets the limit (maximum number of rows in the result) to use on the SelectEndpoint.
 limit :: forall results. SelectEndpoint results -> Int -> SelectEndpoint results
-limit (SelectEndpoint se) n = SelectEndpoint $ se { limit = Just n }
+limit (SelectEndpoint se) n =
+  SelectEndpoint $ se { limit = Just n }
 
 -- | Sets the offset (how many rows to skip from the result) to use on the SelectEndpoint.
 offset :: forall results. SelectEndpoint results -> Int -> SelectEndpoint results
-offset (SelectEndpoint se) n = SelectEndpoint $ se { offset = Just n }
+offset (SelectEndpoint se) n =
+  SelectEndpoint $ se { offset = Just n }
 
 -- | Instances of this type class are automatically derived by the compiler for
 -- | row types pairs where each field in `exprs` matches a column in `cols`
@@ -550,9 +571,11 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
         sc <- selectClause
         fc <- fromClause
         wc <- whereClauseSql endpoint.where_
+        gb <- groupByClause
+        hv <- havingClause
         ob <- orderByClause
         lc <- limitClause
-        pure $ "select " <> sc <> " from " <> fc <> wc <> ob <> lc
+        pure $ "select " <> sc <> " from " <> fc <> wc <> gb <> hv <> ob <> lc
         where
           selectClause = joinCsv <$> traverse selectCol endpoint.columns
 
@@ -575,8 +598,16 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
           joinClause {table, alias, expr: Nothing} =
             pure $ " cross join " <> aliasSql table alias
 
+          groupByClause = case endpoint.groupBy of
+            [] -> pure ""
+            exprs -> (" group by " <> _) <$> joinCsv <$> traverse untypedExpressionSql exprs
+
+          havingClause = case endpoint.having of
+            Expression AlwaysTrueExpr -> pure ""
+            expr -> (" having " <> _) <$> expressionSql' expr
+
           orderByClause = case endpoint.orderBy of
-            [] -> pure $ ""
+            [] -> pure ""
             exprs -> (" order by " <> _) <$> joinCsv <$> traverse orderByExpr exprs
 
           orderByExpr (Asc e) = (_ <> " asc") <$> untypedExpressionSql e
@@ -682,9 +713,7 @@ constantSql c = do
 
 whereClauseSql :: Expression Boolean -> SqlWriter
 whereClauseSql (Expression AlwaysTrueExpr) = pure ""
-whereClauseSql expr = do
-  e <- expressionSql' expr
-  pure $ " where " <> e
+whereClauseSql expr = (" where " <> _) <$> expressionSql' expr
 
 class ConstantsToRecord (r :: #Type) where
   constantsToRecord :: RProxy r -> Map String Constant -> Either ErrorMessage { | r }

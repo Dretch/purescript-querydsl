@@ -10,7 +10,7 @@ import Data.Maybe (Maybe(..), fromJust)
 import Data.Time.Duration (Milliseconds(..))
 import Partial.Unsafe (unsafePartial)
 import Prelude (Unit, bind, discard, pure, ($), negate)
-import QueryDsl.Expressions ((:==), (:/=), (:+), (:*))
+import QueryDsl.Expressions (countAll, (:*), (:+), (:/=), (:==), (:>=))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
 import Test.QueryDsl.SQLite3 as SQLite3
@@ -73,6 +73,21 @@ selectQueryWithOrderBy :: SelectQuery (id :: String)
 selectQueryWithOrderBy = do
   t <- from testTable
   pure $ select {id: t.id} `orderBy` [asc t.description, desc t.id]
+
+selectQueryWithGroupBy :: SelectQuery (id :: String, n :: Int)
+selectQueryWithGroupBy = do
+  t <- from testTable
+  pure $ select {id: t.id, n: countAll} `groupBy` t.description
+
+selectQueryWithTwoGroupBys :: SelectQuery (id :: String, n :: Int)
+selectQueryWithTwoGroupBys = do
+  t <- from testTable
+  pure $ select {id: t.id, n: countAll} `groupBy` t.description `groupBy` t.id
+
+selectQueryWithGroupByHaving :: SelectQuery (id :: String, n :: Int)
+selectQueryWithGroupByHaving = do
+  t <- from testTable
+  pure $ select {id: t.id, n: countAll} `groupBy` t.description `having` (countAll :>= 5)
 
 selectQueryWithNoFrom :: SelectQuery (id :: String)
 selectQueryWithNoFrom =
@@ -194,6 +209,18 @@ sqlGeneration = do
     it "selectQueryWithOrderBy" do
       toSql selectQueryWithOrderBy `shouldBeSql` ParameterizedSql
         "select a.id from test as a order by a.description asc, a.id desc" []
+
+    it "selectQueryWithGroupBy" do
+      toSql selectQueryWithGroupBy `shouldBeSql` ParameterizedSql
+        "select a.id, count(*) as n from test as a group by a.description" []
+
+    it "selectQueryWithTwoGroupBys" do
+      toSql selectQueryWithTwoGroupBys `shouldBeSql` ParameterizedSql
+        "select a.id, count(*) as n from test as a group by a.description, a.id" []
+
+    it "selectQueryWithGroupByHaving" do
+      toSql selectQueryWithGroupByHaving `shouldBeSql` ParameterizedSql
+        "select a.id, count(*) as n from test as a group by a.description having (count(*) >= ?)" [c 5]
 
     it "selectQueryWithLimit" do
       toSql selectQueryWithLimit `shouldBeSql` ParameterizedSql
