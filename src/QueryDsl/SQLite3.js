@@ -7,7 +7,7 @@ exports.decodeQueryResponse = function (addString, addInt, addNumber, addNull, e
 
       var value = result[key];
 
-      if (value instanceof String) {
+      if (typeof value === 'string') {
         decoded = addString(key)(value)(decoded);
       }
       else if (typeof value === 'number') {
@@ -18,7 +18,7 @@ exports.decodeQueryResponse = function (addString, addInt, addNumber, addNull, e
         decoded = addNull(key)(decoded);
       }
       else {
-        throw new Error("Unable to decode value: " + value);
+        throw new Error("Unable to decode value (typeof value === '" + typeof value + "'): " + value);
       }
     });
     return decoded;
