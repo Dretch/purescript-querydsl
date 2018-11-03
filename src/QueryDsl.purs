@@ -249,7 +249,10 @@ instance showParameterizedSql :: Show ParameterizedSql where
 alwaysTrue :: Expression Boolean
 alwaysTrue = Expression AlwaysTrueExpr
 
--- | Represents row types where each item is `name: Column typ required`
+-- | An instance of this type class is automatically derived by the compiler for
+-- | rows where each field in the row matches `name: Column typ required`, representing
+-- | a database table column called `name`, having a database type compatible with
+-- | the Purescript type `typ`, and being required or optional on insert according to `required`
 class TableColumns (cols :: #Type) where
   getTableColumns :: RProxy cols -> TableName -> { | cols }
 
@@ -267,6 +270,7 @@ instance applyTableColumnsNil :: ApplyTableColumns Nil () where
 
 instance applyTableColumnsCons
   :: ( ApplyTableColumns colsRLTail colsRTail
+     , SqlType typ
      , IsSymbol name
      , Cons name (Column typ required) colsRTail colsR
      , Lacks name colsRTail ) =>
@@ -381,6 +385,8 @@ limit (SelectEndpoint se) n = SelectEndpoint $ se { limit = Just n }
 offset :: forall results. SelectEndpoint results -> Int -> SelectEndpoint results
 offset (SelectEndpoint se) n = SelectEndpoint $ se { offset = Just n }
 
+-- | Instances of this type class are automatically derived by the compiler for
+-- | row types pairs where each field in `exprs` matches a column in `cols`
 class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
   getInsertExpressions :: { | exprs } -> List (Tuple ColumnName Constant)
 

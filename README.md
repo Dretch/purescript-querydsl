@@ -10,13 +10,12 @@ A SQL query builder for Purescript, loosely based on Java's [Querydsl](http://ww
 
 ## Non-Goals
  - Support create table syntax: these tend to be very database specific.
- - 100% static type safety: sometimes static type safety is at odds with ease of use.
 
 ## Status
 - Experimental, pre-alpha, full of bugs, lacking in features, unstable, don't rely on this, etc.
 - Currently only SQLite is supported.
 
-## Example
+## Quick Example
 ```purescript
 import Prelude
 import Effect.Aff (Aff)
@@ -40,4 +39,24 @@ getLastNames conn = do
       `where_` (c.firstName :== "Bob")
       `orderBy` [asc c.id]
       `limit` 10
+```
+
+## Longer Example
+
+### Defining Tables
+Querydsl requires that you define a value of type `Table r` for each table in your database. The row parameter `r` holds the types of the columns in the table. E.g.
+```purescript
+customer = makeTable "customer" :: Table (
+  id :: Column Int False,
+  firstName :: Column String True,
+  lastName :: Column String True
+)
+```
+The first parameter to each `Column` is the Purescript version of the database type, and the second parameter is whether this column is required for inserts (`True`) or not (`False`). In this example `id` is not required because it is an auto-generated primary key column.
+
+### Insert Statements
+For an insert you must supply a record containing a value of the correct type for each non-optional column in the table, and possibly also values for the optional columns. E.g.
+```purescript
+-- where db is a DBConnection
+runQuery db $ insertInto customer { firstName: "Jim", lastName: "Smith" }
 ```
