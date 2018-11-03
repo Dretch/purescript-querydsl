@@ -7,6 +7,7 @@ import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertIn
 import QueryDsl.Expressions ((:+), (:==), sum)
 import QueryDsl.SQLite3 (runQuery, runSelectOneQuery)
 import SQLite3 as SQLite3
+import Test.QueryDsl.SQLite3.Expressions as Expressions
 import Test.Spec (Spec, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Data.Boolean (False, True)
@@ -56,3 +57,5 @@ test = do
 
       count'' <- runSelectOneQuery conn selectCount
       count''.n `shouldEqual` 48
+
+  Expressions.test
