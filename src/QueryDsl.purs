@@ -709,9 +709,7 @@ untypedExpressionSql AlwaysTrueExpr =
   pure "(1 = 1)"
 
 constantSql :: Constant -> SqlWriter
-constantSql c = do
-  tell [c]
-  pure $ "?"
+constantSql c = tell [c] $> "?"
 
 whereClauseSql :: Expression Boolean -> SqlWriter
 whereClauseSql (Expression AlwaysTrueExpr) = pure ""
