@@ -185,7 +185,7 @@ type SelectTable = {
   expr :: Maybe (Expression Boolean)
 }
 
--- | The select columns and the where clause part of a select query
+-- | The select columns and the where-clause/order-by/limit/etc part of a select query
 data SelectEndpoint (results :: #Type) = SelectEndpoint {
   columns :: List (Tuple ColumnName UntypedExpression),
   where_ :: Expression Boolean,
@@ -484,6 +484,8 @@ insertInto :: forall cols exprs. InsertExpressions cols exprs => Table cols -> {
 insertInto (Table tName _) exprs =
   InsertQuery tName $ List.reverse $ getInsertExpressions exprs
 
+-- | An instance of this type class is automatically derived by the compiler when
+-- | each item in `exprs` matches a column of the same name and type in `cols`.
 class UpdateExpressions (cols :: #Type) (exprs :: #Type) where
   getUpdateExpressions :: { | cols } -> { | exprs } -> List (Tuple ColumnName UntypedExpression)
 
