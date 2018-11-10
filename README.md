@@ -56,7 +56,7 @@ customer = makeTable "customer" :: Table (
 )
 ```
 
-The first parameter to each `Column` is the Purescript version of the database type, and the second parameter says whether this column is required for inserts or not. In this example `id` is not required because we know it is an auto-generated primary key column.
+The first parameter to each `Column` is the Purescript version of the database type, and the second parameter says whether this column is required for inserts or not. In this example `id` is not required because we know it is an auto-generated primary key column. Where columns are nullable in the database then it also might make sense for them to have required as `False`.
 
 ### Select Statements
 
