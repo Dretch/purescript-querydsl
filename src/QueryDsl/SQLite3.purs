@@ -1,3 +1,6 @@
+-- | Allows running Querydsl queries against SQLite3 databases.
+-- |
+-- | DateTime values are represented in the database as text columns in ISO8601 format (YYYY-MM-DDTHH:mm:ss.SSSZ)
 module QueryDsl.SQLite3 (
   runQuery,
   runSelectManyQuery,
@@ -7,22 +10,30 @@ module QueryDsl.SQLite3 (
 import Prelude
 
 import Data.Array as Array
-import Data.Either (Either(..))
+import Data.Either (Either(..), hush)
+import Data.Formatter.DateTime (Formatter, format, parseFormatString, unformat)
 import Data.Function.Uncurried (Fn6, runFn6)
 import Data.Map (Map)
 import Data.Map as Map
+import Data.Maybe (fromJust)
 import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
 import Foreign (Foreign)
+import Partial.Unsafe (unsafePartial)
 import QueryDsl (class ConstantsToRecord, class Query, Constant(..), ParameterizedSql(..), SelectQuery, constantsToRecord, toSql)
 import SQLite3 (DBConnection)
 import SQLite3 as SQLite3
 import Type.Row (RProxy(..))
 
+dateTimeFormatter :: Formatter
+dateTimeFormatter =
+  unsafePartial $ fromJust $ hush $ parseFormatString "YYYY-MM-DDTHH:mm:ss.SSSZ"
+
 paramToString :: Constant -> String
 paramToString (StringConstant s) = s
 paramToString (IntConstant i) = show i
 paramToString (NumberConstant n) = show n
+paramToString (DateTimeConstant dt) = format dateTimeFormatter dt
 paramToString NullConstant = ""
 
 foreign import decodeQueryResponse
@@ -61,7 +72,8 @@ runSelectManyQuery :: forall cols. ConstantsToRecord cols => DBConnection -> Sel
 runSelectManyQuery conn q = do
   res <- runQueryInternal conn q
   let resMaps = decodeQueryResponseHelper res
-      toRecord = constantsToRecord (RProxy :: RProxy cols)
+      config = { unformatDateTime: unformat dateTimeFormatter >>> hush }
+      toRecord = constantsToRecord (RProxy :: RProxy cols) config
   case traverse toRecord resMaps of
     Left msg -> throwError $ error msg
     Right recs -> pure recs

@@ -2,13 +2,18 @@ module Test.QueryDsl.SQLite3 (test) where
 
 import Prelude
 
+import Data.DateTime (DateTime)
+import Data.DateTime.Instant (instant, toDateTime)
+import Data.Maybe (fromJust)
+import Data.Time.Duration (Milliseconds(..))
 import Effect.Aff (bracket)
+import Partial.Unsafe (unsafePartial)
 import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertInto, makeTable, select, update)
 import QueryDsl.Expressions ((:+), (:==), sum)
 import QueryDsl.SQLite3 (runQuery, runSelectOneQuery)
 import SQLite3 as SQLite3
 import Test.QueryDsl.SQLite3.Expressions as Expressions
-import Test.Spec (Spec, it)
+import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Data.Boolean (False, True)
 
@@ -34,28 +39,39 @@ selectCount = do
 
 test :: Spec Unit
 test = do
-  it "Sqlite" do
-    bracket (SQLite3.newDB ":memory:") SQLite3.closeDB \conn -> do
+  describe "Sqlite" do
 
-      void $ SQLite3.queryDB conn createTableSql []
+    let withMemoryDb = bracket (SQLite3.newDB ":memory:") SQLite3.closeDB
 
-      let t = columns testTable
+    it "CRUD" do
+      withMemoryDb \db -> do
 
-      runQuery conn $ insertInto testTable {name: "jim", count: 5}
-      runQuery conn $ insertInto testTable {name: "jane", count: 42}
-      runQuery conn $ insertInto testTable {name: "jean", count: 7}
+        void $ SQLite3.queryDB db createTableSql []
 
-      count <- runSelectOneQuery conn selectCount
-      count.n `shouldEqual` 54
+        let t = columns testTable
 
-      runQuery conn $ update testTable {count: t.count :+ 1} (t.name :== "jim")
+        runQuery db $ insertInto testTable {name: "jim", count: 5}
+        runQuery db $ insertInto testTable {name: "jane", count: 42}
+        runQuery db $ insertInto testTable {name: "jean", count: 7}
 
-      count' <- runSelectOneQuery conn selectCount
-      count'.n `shouldEqual` 55
+        count <- runSelectOneQuery db selectCount
+        count.n `shouldEqual` 54
 
-      runQuery conn $ deleteFrom testTable (t.name :== "jean")
+        runQuery db $ update testTable {count: t.count :+ 1} (t.name :== "jim")
 
-      count'' <- runSelectOneQuery conn selectCount
-      count''.n `shouldEqual` 48
+        count' <- runSelectOneQuery db selectCount
+        count'.n `shouldEqual` 55
+
+        runQuery db $ deleteFrom testTable (t.name :== "jean")
+
+        count'' <- runSelectOneQuery db selectCount
+        count''.n `shouldEqual` 48
+
+    it "DateTime handling" do
+      withMemoryDb \db -> do
+        let testDateTime = toDateTime $ unsafePartial $ fromJust $ instant $ Milliseconds $ 123.0
+            query = pure (select { dt: testDateTime }) :: SelectQuery (dt :: DateTime)
+        result <- runSelectOneQuery db query
+        result.dt `shouldEqual` testDateTime
 
   Expressions.test

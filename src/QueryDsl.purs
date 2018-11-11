@@ -4,6 +4,8 @@ module QueryDsl (
   class SqlType,
   toConstant,
   fromConstant,
+  FromConstantConfig,
+  defaultFromConstantConfig,
   Table,
   TableName,
   Column,
@@ -75,21 +77,19 @@ import Control.Monad.State (State, runState, get, put)
 import Control.Monad.Writer (Writer, runWriter, tell)
 import Data.Array as Array
 import Data.DateTime (DateTime)
-import Data.Either (Either(..), hush)
+import Data.Either (Either(..))
 import Data.Foldable (class Foldable)
-import Data.Formatter.DateTime (Formatter, format, parseFormatString, unformat)
 import Data.Int as Int
 import Data.List (List(..), (:))
 import Data.List as List
 import Data.Map (Map)
 import Data.Map as Map
-import Data.Maybe (Maybe(..), fromJust)
+import Data.Maybe (Maybe(..))
 import Data.String (joinWith)
 import Data.String.CodeUnits (charAt, singleton)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst, snd, uncurry)
-import Partial.Unsafe (unsafePartial)
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
 import Type.Data.Boolean (kind Boolean, False, True)
@@ -99,6 +99,7 @@ import Type.Row (class RowToList, Cons, Nil, RLProxy(..), RProxy(..), kind RowLi
 data Constant = StringConstant String
               | IntConstant Int
               | NumberConstant Number
+              | DateTimeConstant DateTime
               | NullConstant
 
 derive instance eqConstant :: Eq Constant
@@ -107,50 +108,55 @@ instance showConstant :: Show Constant where
   show (StringConstant s) = show s
   show (IntConstant i) = show i
   show (NumberConstant f) = show f
+  show (DateTimeConstant dt) = show dt
   show NullConstant = "null"
+
+-- | Passed to `fromConstant` to configure how values are converted from constants.
+type FromConstantConfig = { unformatDateTime :: String -> Maybe DateTime }
+
+-- | The default configuration does nothing.
+defaultFromConstantConfig :: FromConstantConfig
+defaultFromConstantConfig = { unformatDateTime : const Nothing }
 
 -- | Types that can be converted to/from Constant values
 class SqlType t where
   toConstant :: t -> Constant
-  fromConstant :: Constant -> Maybe t
+  fromConstant :: FromConstantConfig -> Constant -> Maybe t
 
 instance sqlTypeString :: SqlType String where
   toConstant = StringConstant
-  fromConstant (StringConstant s) = Just s
-  fromConstant _ = Nothing
+  fromConstant _ (StringConstant s) = Just s
+  fromConstant _ _ = Nothing
 
 instance sqlTypeInt :: SqlType Int where
   toConstant = IntConstant
-  fromConstant (IntConstant n) = Just n
-  fromConstant _ = Nothing
+  fromConstant _ (IntConstant n) = Just n
+  fromConstant _ _ = Nothing
 
 instance sqlTypeNumber :: SqlType Number where
   toConstant = NumberConstant
-  fromConstant (NumberConstant n) = Just n
-  fromConstant (IntConstant n) = Just $ Int.toNumber n
-  fromConstant _ = Nothing
+  fromConstant _ (NumberConstant n) = Just n
+  fromConstant _ (IntConstant n) = Just $ Int.toNumber n
+  fromConstant _ _ = Nothing
 
 instance sqlTypeBoolean :: SqlType Boolean where
   toConstant true = IntConstant 1
   toConstant false = IntConstant 0
-  fromConstant (IntConstant 0) = Just false
-  fromConstant (IntConstant _) = Just true
-  fromConstant _ = Nothing
-
-dateTimeFormatter :: Formatter
-dateTimeFormatter =
-  unsafePartial $ fromJust $ hush $ parseFormatString "YYYY-MM-DDTHH:mm:ss.SSSZ"
+  fromConstant _ (IntConstant 0) = Just false
+  fromConstant _ (IntConstant _) = Just true
+  fromConstant _ _ = Nothing
 
 instance sqlTypeDateTime :: SqlType DateTime where
-  toConstant dt = StringConstant $ format dateTimeFormatter dt
-  fromConstant (StringConstant s) =  hush $ unformat dateTimeFormatter s
-  fromConstant _ = Nothing
+  toConstant = DateTimeConstant
+  fromConstant _ (DateTimeConstant dt) = Just dt
+  fromConstant { unformatDateTime } (StringConstant s) = unformatDateTime s
+  fromConstant _ _ = Nothing
 
 instance sqlTypeMaybe :: SqlType a => SqlType (Maybe a) where
   toConstant (Just x) = toConstant x
   toConstant Nothing = NullConstant
-  fromConstant NullConstant = Just Nothing
-  fromConstant c = Just <$> fromConstant c
+  fromConstant _ NullConstant = Just Nothing
+  fromConstant config c = Just <$> fromConstant config c
 
 newtype TableName = TableName String
 
@@ -721,18 +727,18 @@ whereClauseSql (Expression AlwaysTrueExpr) = pure ""
 whereClauseSql expr = (" where " <> _) <$> expressionSql' expr
 
 class ConstantsToRecord (r :: #Type) where
-  constantsToRecord :: RProxy r -> Map String Constant -> Either ErrorMessage { | r }
+  constantsToRecord :: RProxy r -> FromConstantConfig -> Map String Constant -> Either ErrorMessage { | r }
 
 instance constantsToRecordImpl
   :: ( RowToList r rl
      , ApplyConstantsToRecord r rl ) => ConstantsToRecord r where
-  constantsToRecord r = constantsToRecord' (RLProxy :: RLProxy rl)
+  constantsToRecord r config = constantsToRecord' (RLProxy :: RLProxy rl) config
 
 class ApplyConstantsToRecord (r :: #Type) (rl :: RowList) | rl -> r where
-  constantsToRecord' :: RLProxy rl -> Map String Constant -> Either ErrorMessage { | r }
+  constantsToRecord' :: RLProxy rl -> FromConstantConfig -> Map String Constant -> Either ErrorMessage { | r }
 
 instance applyConstantsToRecordNil :: ApplyConstantsToRecord () Nil where
-  constantsToRecord' _ cols =
+  constantsToRecord' _ _ cols =
     case Map.findMin cols of
       Nothing -> Right {}
       Just {key, value} -> Left $ "Value supplied for unknown field: " <> key <> " = " <> show value
@@ -744,16 +750,16 @@ instance applyConstantsToRecordCons
      , Cons name typ rTail r
      , Lacks name rTail ) => ApplyConstantsToRecord r (Cons name typ rlTail)
   where
-    constantsToRecord' _ cols =
+    constantsToRecord' _ config cols =
       case Map.pop name cols of
         Nothing ->
           Left $ "No value found for required field: " <> name
         Just (Tuple c tailMap) ->
-          case fromConstant c of
+          case fromConstant config c of
             Nothing ->
               Left $ "Value has incorrect type for field " <> name <> ", unable to convert: " <> show c
             Just v -> do
-              tailRec <- constantsToRecord' tailRLProxy tailMap
+              tailRec <- constantsToRecord' tailRLProxy config tailMap
               Right $ Record.insert nameProxy v tailRec
       where
         nameProxy = SProxy :: SProxy name

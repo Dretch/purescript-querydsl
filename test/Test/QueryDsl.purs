@@ -1,7 +1,5 @@
 module Test.QueryDsl (test) where
 
-import QueryDsl
-
 import Data.DateTime (DateTime)
 import Data.DateTime.Instant (instant, toDateTime)
 import Data.Either (Either(..))
@@ -9,7 +7,8 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Time.Duration (Milliseconds(..))
 import Partial.Unsafe (unsafePartial)
-import Prelude (Unit, bind, discard, pure, ($), negate)
+import Prelude (Unit, bind, discard, pure, ($), negate, (==))
+import QueryDsl
 import QueryDsl.Expressions (countAll, (:*), (:+), (:/=), (:==), (:>=))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
@@ -126,64 +125,76 @@ sqlType :: Spec Unit
 sqlType = do
   describe "SqlType" do
 
+    let testDateString = "1832-01-27T14:00:20.012Z"
+        testDate = toDateTime $ unsafePartial $ fromJust $ instant $ Milliseconds $ -4352608779988.0
+        dfcc = defaultFromConstantConfig
+
     describe "String" do
       it "toConstant" do
         toConstant "abc" `shouldEqual` StringConstant "abc"
       it "fromConstant" do
-        fromConstant (StringConstant "abc") `shouldEqual` Just "abc"
-        fromConstant (IntConstant 123) `shouldEqual` Nothing :: Maybe String
-        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe String
-        fromConstant NullConstant `shouldEqual` Nothing :: Maybe String
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` Just "abc"
+        fromConstant dfcc (IntConstant 123) `shouldEqual` Nothing :: Maybe String
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe String
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe String
+        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe String
 
     describe "Int" do
       it "toConstant" do
         toConstant 123 `shouldEqual` IntConstant 123
       it "fromConstant" do
-        fromConstant (IntConstant 123) `shouldEqual` Just 123
-        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
-        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Int
-        fromConstant NullConstant `shouldEqual` Nothing :: Maybe Int
+        fromConstant dfcc (IntConstant 123) `shouldEqual` Just 123
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Int
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe Int
+        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe Int
 
     describe "Number" do
       it "toConstant" do
         toConstant 123.456 `shouldEqual` NumberConstant 123.456
       it "fromConstant" do
-        fromConstant (NumberConstant 123.0) `shouldEqual` Just 123.0
-        fromConstant (IntConstant 123) `shouldEqual` Just 123.0
-        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Number
-        fromConstant NullConstant `shouldEqual` Nothing :: Maybe Number
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Just 123.0
+        fromConstant dfcc (IntConstant 123) `shouldEqual` Just 123.0
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Number
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe Number
+        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe Number
 
     describe "Boolean" do
       it "toConstant" do
         toConstant false `shouldEqual` IntConstant 0
         toConstant true `shouldEqual` IntConstant 1
       it "fromConstant" do
-        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Boolean
-        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Boolean
-        fromConstant (IntConstant 0) `shouldEqual` Just false
-        fromConstant (IntConstant 1) `shouldEqual` Just true
-        fromConstant (IntConstant 42) `shouldEqual` Just true
-        fromConstant NullConstant `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant dfcc (IntConstant 0) `shouldEqual` Just false
+        fromConstant dfcc (IntConstant 1) `shouldEqual` Just true
+        fromConstant dfcc (IntConstant 42) `shouldEqual` Just true
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe Boolean
 
     describe "Maybe" do
       it "toConstant" do
         toConstant (Nothing :: Maybe Int) `shouldEqual` NullConstant
         toConstant (Just 1) `shouldEqual` IntConstant 1
       it "fromConstant" do
-        fromConstant NullConstant `shouldEqual` Just (Nothing :: Maybe Int)
-        fromConstant (IntConstant 123) `shouldEqual` Just (Just 123)
-        fromConstant (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
+        fromConstant dfcc NullConstant `shouldEqual` Just (Nothing :: Maybe Int)
+        fromConstant dfcc (IntConstant 123) `shouldEqual` Just (Just 123)
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
 
     describe "DateTime" do
-      let testDateString = "1832-01-27T14:00:20.012Z"
-          testDate = toDateTime $ unsafePartial $ fromJust $ instant $ Milliseconds $ -4352608779988.0
       it "toConstant" do
-        toConstant testDate `shouldEqual` StringConstant testDateString
-      it "fromConstant" do
-        fromConstant (StringConstant testDateString) `shouldEqual` Just testDate
-        fromConstant (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe DateTime
-        fromConstant (IntConstant 123) `shouldEqual` Nothing :: Maybe DateTime
-        fromConstant NullConstant `shouldEqual` Nothing :: Maybe DateTime
+        toConstant testDate `shouldEqual` DateTimeConstant testDate
+      it "fromConstant - default config" do
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Just testDate
+        fromConstant dfcc (StringConstant testDateString) `shouldEqual` Nothing :: Maybe DateTime
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe DateTime
+        fromConstant dfcc (IntConstant 123) `shouldEqual` Nothing :: Maybe DateTime
+        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe DateTime
+
+      it "fromConstant - with custom unformatDateTime config" do
+        let config = { unformatDateTime: \s -> if s == "a" then Just testDate else Nothing }
+        fromConstant config (StringConstant "a") `shouldEqual` Just testDate
+        fromConstant config (StringConstant "b") `shouldEqual` Nothing :: Maybe DateTime
 
 sqlGeneration :: Spec Unit
 sqlGeneration = do
@@ -244,7 +255,7 @@ sqlGeneration = do
 
     it "selectQueryWithFirstTableAsJoin" do
       toSql selectQueryWithFirstTableAsJoin `shouldEqual`
-        Left "A join condition cannot be used with the first table in the from clause"
+        Left "A join condition cannot be supplied for the first table in the from clause"
 
     it "filteredDeleteQuery" do
       toSql filteredDeleteQuery `shouldBeSql` ParameterizedSql
@@ -270,22 +281,23 @@ resultGeneration = do
   describe "constantsToRecord" do
 
     let idProxy = RProxy :: RProxy (id :: Int)
-    let idNameProxy = RProxy :: RProxy (id :: Int, name :: String)
+        idNameProxy = RProxy :: RProxy (id :: Int, name :: String)
+        dfcc = defaultFromConstantConfig
 
     it "fields match" do
-      constantsToRecord idNameProxy (Map.insert "id" (c 123) $ Map.singleton "name" (c "abc"))
+      constantsToRecord idNameProxy dfcc (Map.insert "id" (c 123) $ Map.singleton "name" (c "abc"))
         `shouldEqual` Right {id: 123, name: "abc"}
 
     it "extra field value supplied" do
-      constantsToRecord idProxy (Map.insert "id" (c 123) $ Map.singleton "extra" (c 456))
+      constantsToRecord idProxy dfcc (Map.insert "id" (c 123) $ Map.singleton "extra" (c 456))
         `shouldEqual` Left "Value supplied for unknown field: extra = 456"
 
     it "expected field value missing" do
-      constantsToRecord idNameProxy (Map.singleton "id" (c 123))
+      constantsToRecord idNameProxy dfcc (Map.singleton "id" (c 123))
         `shouldEqual` Left "No value found for required field: name"
 
     it "field value with incorrect type" do
-      constantsToRecord idProxy (Map.singleton "id" (c "123"))
+      constantsToRecord idProxy dfcc (Map.singleton "id" (c "123"))
         `shouldEqual` Left "Value has incorrect type for field id, unable to convert: \"123\""
 
 test :: Spec Unit
