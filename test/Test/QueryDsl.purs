@@ -89,9 +89,13 @@ selectQueryWithGroupByHaving = do
   t <- from testTable
   pure $ select {id: t.id, n: countAll} `groupBy` t.description `having` (countAll :>= 5)
 
-selectQueryWithNoFrom :: SelectQuery (id :: String)
+selectQueryWithNoFrom :: SelectQuery (int :: Int, string :: String)
 selectQueryWithNoFrom =
-  let t = columns testTable in
+  pure $ select {int: 123, string: "abc"}
+
+selectQueryWithFirstTableAsJoin :: SelectQuery (id :: String)
+selectQueryWithFirstTableAsJoin = do
+  t <- join testTable (\t -> t.id :== "abc")
   pure $ select {id: t.id}
 
 selfJoinSelectQuery :: SelectQuery (aId :: String, bId ::String)
@@ -235,7 +239,12 @@ sqlGeneration = do
         "select a.id from test as a limit ? offset ?" [c 10, c 50]
 
     it "selectQueryWithNoFrom" do
-      toSql selectQueryWithNoFrom `shouldEqual` Left "SQL query is missing initial table"
+      toSql selectQueryWithNoFrom `shouldBeSql` ParameterizedSql
+        "select ? as int, ? as string" [c 123, c "abc"]
+
+    it "selectQueryWithFirstTableAsJoin" do
+      toSql selectQueryWithFirstTableAsJoin `shouldEqual`
+        Left "A join condition cannot be used with the first table in the from clause"
 
     it "filteredDeleteQuery" do
       toSql filteredDeleteQuery `shouldBeSql` ParameterizedSql

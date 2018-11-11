@@ -561,15 +561,17 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
       Right $ uncurry ParameterizedSql $ runWriter writer
     where
       toWriter :: SelectEndpoint results -> List SelectTable -> Either ErrorMessage SqlWriter
-      toWriter endpoint tables  =
-        uncurry (toWriter' endpoint) <$> splitRootTable (List.reverse tables)
+      toWriter endpoint tables =
+        toWriter' endpoint <$> checkTables (List.reverse tables)
 
-      splitRootTable :: List SelectTable -> Either ErrorMessage (Tuple SelectTable (List SelectTable))
-      splitRootTable (t@{ expr: Nothing } : ts) = Right $ Tuple t ts
-      splitRootTable _ = Left "SQL query is missing initial table"
+      checkTables :: List SelectTable -> Either ErrorMessage (List SelectTable)
+      checkTables ({ expr: Just _ } : _) =
+        Left  "A join condition cannot be supplied for the first table in the from clause"
+      checkTables ts =
+        Right ts
 
-      toWriter' :: SelectEndpoint results -> SelectTable -> List SelectTable -> SqlWriter
-      toWriter' (SelectEndpoint endpoint) rootTable joinedTables = do
+      toWriter' :: SelectEndpoint results -> List SelectTable -> SqlWriter
+      toWriter' (SelectEndpoint endpoint) tables = do
         sc <- selectClause
         fc <- fromClause
         wc <- whereClauseSql endpoint.where_
@@ -577,7 +579,7 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
         hv <- havingClause
         ob <- orderByClause
         lc <- limitClause
-        pure $ "select " <> sc <> " from " <> fc <> wc <> gb <> hv <> ob <> lc
+        pure $ "select " <> sc <> fc <> wc <> gb <> hv <> ob <> lc
         where
           selectClause = joinCsv <$> traverse selectCol endpoint.columns
 
@@ -590,9 +592,12 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
             sql <- untypedExpressionSql expr
             pure $ sql <> " as " <> columnNameSql cName
 
-          fromClause = do
-            jc <- joinSpace <$> traverse joinClause joinedTables
-            pure $ aliasSql rootTable.table rootTable.alias <> jc
+          fromClause = case tables of
+            Nil ->
+              pure ""
+            rootTable : joinedTables -> do
+              jc <- joinSpace <$> traverse joinClause joinedTables
+              pure $ " from " <> aliasSql rootTable.table rootTable.alias <> jc
 
           joinClause {table, alias, expr: Just expr'} = do
             e <- expressionSql' expr'
