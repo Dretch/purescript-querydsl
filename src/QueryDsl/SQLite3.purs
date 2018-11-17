@@ -12,13 +12,18 @@ import Prelude
 import Data.Array as Array
 import Data.Either (Either(..), hush)
 import Data.Formatter.DateTime (Formatter, format, parseFormatString, unformat)
-import Data.Function.Uncurried (Fn6, runFn6)
+import Data.Function.Uncurried as U
+import Data.Nullable as Nullable
 import Data.Map (Map)
 import Data.Map as Map
-import Data.Maybe (fromJust)
+import Data.Maybe (Maybe(..), fromJust)
 import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
-import Foreign (Foreign)
+import Effect.Class (liftEffect)
+import Effect.Uncurried as EU
+import Foreign (Foreign, unsafeToForeign)
+import Node.Buffer as Buffer
+import Node.Buffer (Buffer)
 import Partial.Unsafe (unsafePartial)
 import QueryDsl (class ConstantsToRecord, class Query, Constant(..), ParameterizedSql(..), SelectQuery, constantsToRecord, toSql)
 import SQLite3 (DBConnection)
@@ -29,30 +34,39 @@ dateTimeFormatter :: Formatter
 dateTimeFormatter =
   unsafePartial $ fromJust $ hush $ parseFormatString "YYYY-MM-DDTHH:mm:ss.SSSZ"
 
-paramToString :: Constant -> String
-paramToString (StringConstant s) = s
-paramToString (IntConstant i) = show i
-paramToString (NumberConstant n) = show n
-paramToString (DateTimeConstant dt) = format dateTimeFormatter dt
-paramToString NullConstant = ""
+constantToForeign :: Constant -> Aff Foreign
+constantToForeign (StringConstant s) =
+  pure $ unsafeToForeign s
+constantToForeign (IntConstant i) =
+  pure $ unsafeToForeign i
+constantToForeign (NumberConstant n) =
+  pure $ unsafeToForeign n
+constantToForeign (DateTimeConstant dt) =
+  pure $ unsafeToForeign $ format dateTimeFormatter dt
+constantToForeign (OctetArrayConstant oa) =
+  liftEffect $ unsafeToForeign <$> Buffer.fromArray oa
+constantToForeign NullConstant =
+  pure $ unsafeToForeign $ Nullable.toNullable Nothing
 
 foreign import decodeQueryResponse
-  :: Fn6
-     (String -> String -> Map String Constant -> Map String Constant)
-     (String -> Int -> Map String Constant -> Map String Constant)
-     (String -> Number -> Map String Constant -> Map String Constant)
-     (String -> Map String Constant -> Map String Constant)
-     (Map String Constant)
+  :: forall result. U.Fn7
+     (U.Fn3 String String result result)
+     (U.Fn3 String Int result result)
+     (U.Fn3 String Number result result)
+     (EU.EffectFn3 String Buffer result result)
+     (U.Fn2 String result result)
+     result
      Foreign
-     (Array (Map String Constant))
+     (Array result)
 
 decodeQueryResponseHelper :: Foreign -> Array (Map String Constant)
 decodeQueryResponseHelper =
-  runFn6 decodeQueryResponse
-    (\k v -> Map.insert k (StringConstant v))
-    (\k v -> Map.insert k (IntConstant v))
-    (\k v -> Map.insert k (NumberConstant v))
-    (\k -> Map.insert k NullConstant)
+  U.runFn7 decodeQueryResponse
+    (U.mkFn3 \k v -> Map.insert k (StringConstant v))
+    (U.mkFn3 \k v -> Map.insert k (IntConstant v))
+    (U.mkFn3 \k v -> Map.insert k (NumberConstant v))
+    (EU.mkEffectFn3 \k v m -> (\a -> Map.insert k (OctetArrayConstant a) m) <$> Buffer.toArray v)
+    (U.mkFn2 \k -> Map.insert k NullConstant)
     Map.empty
 
 runQueryInternal :: forall q. Query q => DBConnection -> q -> Aff Foreign
@@ -60,8 +74,9 @@ runQueryInternal conn q =
   case toSql q of
     Left msg ->
       throwError $ error msg
-    Right (ParameterizedSql sql params) ->
-      SQLite3.queryDB conn sql (paramToString <$> params)
+    Right (ParameterizedSql sql constants) -> do
+      foreigns <- traverse constantToForeign constants
+      SQLite3.queryDB conn sql foreigns
 
 -- | Run a query and ignore any results.
 runQuery :: forall q. Query q => DBConnection -> q -> Aff Unit

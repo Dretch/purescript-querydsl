@@ -7,6 +7,7 @@ import Data.DateTime.Instant (instant, toDateTime)
 import Data.Maybe (fromJust)
 import Data.Time.Duration (Milliseconds(..))
 import Effect.Aff (bracket)
+import Node.Buffer (Octet)
 import Partial.Unsafe (unsafePartial)
 import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertInto, makeTable, select, update)
 import QueryDsl.Expressions ((:+), (:==), sum)
@@ -67,11 +68,20 @@ test = do
         count'' <- runSelectOneQuery db selectCount
         count''.n `shouldEqual` 48
 
-    it "DateTime handling" do
-      withMemoryDb \db -> do
-        let testDateTime = toDateTime $ unsafePartial $ fromJust $ instant $ Milliseconds $ 123.0
-            query = pure (select { dt: testDateTime }) :: SelectQuery (dt :: DateTime)
-        result <- runSelectOneQuery db query
-        result.dt `shouldEqual` testDateTime
+    describe "Datatypes" do
+
+      it "DateTime" do
+        withMemoryDb \db -> do
+          let testDateTime = toDateTime $ unsafePartial $ fromJust $ instant $ Milliseconds $ 123.0
+              query = pure (select { dt: testDateTime }) :: SelectQuery (dt :: DateTime)
+          result <- runSelectOneQuery db query
+          result.dt `shouldEqual` testDateTime
+
+      it "OctetArray" do
+        withMemoryDb \db -> do
+          let octets = [1, 2, 3]
+              query = pure (select { a: octets }) :: SelectQuery (a :: Array Octet)
+          result <- runSelectOneQuery db query
+          result.a `shouldEqual` octets
 
   Expressions.test

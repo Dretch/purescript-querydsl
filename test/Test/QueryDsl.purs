@@ -6,6 +6,7 @@ import Data.Either (Either(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Time.Duration (Milliseconds(..))
+import Node.Buffer (Octet)
 import Partial.Unsafe (unsafePartial)
 import Prelude (Unit, bind, discard, pure, ($), negate, (==))
 import QueryDsl
@@ -195,6 +196,14 @@ sqlType = do
         let config = { unformatDateTime: \s -> if s == "a" then Just testDate else Nothing }
         fromConstant config (StringConstant "a") `shouldEqual` Just testDate
         fromConstant config (StringConstant "b") `shouldEqual` Nothing :: Maybe DateTime
+
+    describe "OctetArray" do
+      let octets = [1, 2, 3]
+      it "toConstant" do
+        toConstant octets `shouldEqual` OctetArrayConstant octets
+      it "fromConstant" do
+        fromConstant dfcc (OctetArrayConstant octets) `shouldEqual` Just octets
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe (Array Octet)
 
 sqlGeneration :: Spec Unit
 sqlGeneration = do
