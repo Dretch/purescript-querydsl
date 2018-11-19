@@ -93,6 +93,8 @@ import Data.Tuple (Tuple(..), fst, snd, uncurry)
 import Node.Buffer (Octet)
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
+import Record.Builder (Builder)
+import Record.Builder as RB
 import Type.Data.Boolean (kind Boolean, False, True)
 import Type.Row (class RowToList, Cons, Nil, RLProxy(..), RProxy(..), kind RowList)
 
@@ -278,13 +280,15 @@ instance tableColumnsImpl
   :: ( RowToList colsR colsRL
      , ApplyTableColumns colsRL colsR ) => TableColumns colsR
   where
-    getTableColumns rp = getTableColumns' (RLProxy :: RLProxy colsRL) rp
+    getTableColumns rProxy tName =
+      let builder = getTableColumns' (RLProxy :: RLProxy colsRL) rProxy tName
+      in RB.build builder {}
 
 class ApplyTableColumns (colsRL :: RowList) (colsR :: #Type) | colsRL -> colsR where
-  getTableColumns' :: RLProxy colsRL -> RProxy colsR -> TableName -> { | colsR }
+  getTableColumns' :: RLProxy colsRL -> RProxy colsR -> TableName -> Builder {} { | colsR }
 
 instance applyTableColumnsNil :: ApplyTableColumns Nil () where
-  getTableColumns' _ _ _ = {}
+  getTableColumns' _ _ _ = identity
 
 instance applyTableColumnsCons
   :: ( ApplyTableColumns colsRLTail colsRTail
@@ -295,7 +299,7 @@ instance applyTableColumnsCons
      ApplyTableColumns (Cons name (Column typ required) colsRLTail) colsR
   where
     getTableColumns' _ _ tName =
-      Record.insert nameProxy col tail
+      RB.insert nameProxy col <<< tail
       where
         nameProxy = SProxy :: SProxy name
         cName = ColumnName $ reflectSymbol nameProxy
@@ -740,15 +744,17 @@ class ConstantsToRecord (r :: #Type) where
 instance constantsToRecordImpl
   :: ( RowToList r rl
      , ApplyConstantsToRecord r rl ) => ConstantsToRecord r where
-  constantsToRecord r config = constantsToRecord' (RLProxy :: RLProxy rl) config
+  constantsToRecord r config constants = do
+    builder <- constantsToRecord' (RLProxy :: RLProxy rl) config constants
+    pure $ RB.build builder {}
 
 class ApplyConstantsToRecord (r :: #Type) (rl :: RowList) | rl -> r where
-  constantsToRecord' :: RLProxy rl -> FromConstantConfig -> Map String Constant -> Either ErrorMessage { | r }
+  constantsToRecord' :: RLProxy rl -> FromConstantConfig -> Map String Constant -> Either ErrorMessage (Builder {} { | r })
 
 instance applyConstantsToRecordNil :: ApplyConstantsToRecord () Nil where
   constantsToRecord' _ _ cols =
     case Map.findMin cols of
-      Nothing -> Right {}
+      Nothing -> Right identity
       Just {key, value} -> Left $ "Value supplied for unknown field: " <> key <> " = " <> show value
 
 instance applyConstantsToRecordCons
@@ -767,8 +773,8 @@ instance applyConstantsToRecordCons
             Nothing ->
               Left $ "Value has incorrect type for field " <> name <> ", unable to convert: " <> show c
             Just v -> do
-              tailRec <- constantsToRecord' tailRLProxy config tailMap
-              Right $ Record.insert nameProxy v tailRec
+              tail <- constantsToRecord' tailRLProxy config tailMap
+              Right $ RB.insert nameProxy v <<< tail
       where
         nameProxy = SProxy :: SProxy name
         name = reflectSymbol nameProxy
