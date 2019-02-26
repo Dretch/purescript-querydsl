@@ -33,8 +33,8 @@ customer = makeTable "customer" :: Table (
 )
 
 getLastNames :: DBConnection -> Aff (Array { lastName :: String })
-getLastNames conn = do
-  runSelectManyQuery conn do
+getLastNames db = do
+  runSelectManyQuery db do
     c <- from customer
     pure $ select { lastName: c.lastName }
       `where_` (c.firstName :== "Bob")
@@ -100,6 +100,11 @@ To delete rows from a table you must provide [`deleteFrom`][QueryDsl.deleteFrom]
 let c = columns customer in
 runQuery db $ deleteFrom customer (c.firstName :== "Paulo" :&& c.lastName :== "Coelho")
 ```
+
+## Installation
+- With Bower: `bower install purescript-querydsl --save`.
+- With Psc Package: Querydsl is not in a public package set, so you will have to add it to your own (e.g. using Spago). Look at `bower.json` to get the dependencies.
+- You will also need `yarn add sqlite3` to get the Node SQLite dependency.
 
 [Data.Type.Boolean.False]: https://pursuit.purescript.org/packages/purescript-typelevel-prelude/docs/Type.Data.Boolean#t:False
 [QueryDsl.Column]: https://pursuit.purescript.org/packages/purescript-querydsl/docs/QueryDsl#t:Column
