@@ -67,7 +67,7 @@ A monad is used to build the from-clause, and the value returned by the monad sa
 ```purescript
 runSelectManyQuery db do
   c <- from customer
-  o <- join order (\o -> o.customer :== c.id)
+  o <- innerJoin order (\o -> o.customer :== c.id)
   pure $ select {name: c.firstName, total: o.total} `where_` (o.total :>= 50)
 ```
 

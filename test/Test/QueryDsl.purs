@@ -10,7 +10,7 @@ import Node.Buffer (Octet)
 import Partial.Unsafe (unsafePartial)
 import Prelude (Unit, bind, discard, pure, ($), negate, (==))
 import QueryDsl
-import QueryDsl.Expressions (countAll, (:*), (:+), (:/=), (:==), (:>=))
+import QueryDsl.Expressions (countAll, (:*), (:+), (:==), (:>=))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
 import Test.QueryDsl.SQLite3 as SQLite3
@@ -66,8 +66,20 @@ expressiveSelectQuery = do
 simpleJoinSelectQuery :: SelectQuery (jId :: String, tId :: String, extra :: String)
 simpleJoinSelectQuery = do
   t <- from testTable
-  j <- join testChildTable (\j -> j.id :== t.id)
-  pure $ select {tId: t.id, jId: j.id, extra: j.extra} `where_` (t.id :/= "sdf")
+  j <- innerJoin testChildTable (\j -> j.id :== t.id)
+  pure $ select {tId: t.id, jId: j.id, extra: j.extra}
+
+leftJoinSelectQuery :: SelectQuery (jId :: String, tId :: String, extra :: String)
+leftJoinSelectQuery = do
+  t <- from testTable
+  j <- leftJoin testChildTable (\j -> j.id :== t.id)
+  pure $ select {tId: t.id, jId: j.id, extra: j.extra}
+
+crossJoinSelectQuery :: SelectQuery (jId :: String, tId :: String, extra :: String)
+crossJoinSelectQuery = do
+  t <- from testTable
+  j <- crossJoin testChildTable
+  pure $ select {tId: t.id, jId: j.id, extra: j.extra}
 
 selectQueryWithOrderBy :: SelectQuery (id :: String)
 selectQueryWithOrderBy = do
@@ -95,13 +107,13 @@ selectQueryWithNoFrom =
 
 selectQueryWithFirstTableAsJoin :: SelectQuery (id :: String)
 selectQueryWithFirstTableAsJoin = do
-  t <- join testTable (\t -> t.id :== "abc")
+  t <- innerJoin testTable (\t -> t.id :== "abc")
   pure $ select {id: t.id}
 
 selfJoinSelectQuery :: SelectQuery (aId :: String, bId ::String)
 selfJoinSelectQuery = do
   a <- from testTable
-  b <- join testTable (\b -> b.id :== a.id)
+  b <- innerJoin testTable (\b -> b.id :== a.id)
   pure $ select {aId: a.id, bId: b.id}
 
 filteredUpdateQuery :: UpdateQuery
@@ -223,8 +235,18 @@ sqlGeneration = do
 
     it "simpleJoinSelectQuery" do
       toSql simpleJoinSelectQuery `shouldBeSql` ParameterizedSql
-        "select b.extra, b.id as jId, a.id as tId from test as a join child as b on (b.id = a.id) where (a.id <> ?)"
-        [ c "sdf" ]
+        "select b.extra, b.id as jId, a.id as tId from test as a join child as b on (b.id = a.id)"
+        []
+
+    it "leftJoinSelectQuery" do
+      toSql leftJoinSelectQuery `shouldBeSql` ParameterizedSql
+        "select b.extra, b.id as jId, a.id as tId from test as a left join child as b on (b.id = a.id)"
+        []
+
+    it "crossJoinSelectQuery" do
+      toSql crossJoinSelectQuery `shouldBeSql` ParameterizedSql
+        "select b.extra, b.id as jId, a.id as tId from test as a cross join child as b"
+        []
 
     it "selfJoinSelectQuery" do
       toSql selfJoinSelectQuery `shouldBeSql` ParameterizedSql

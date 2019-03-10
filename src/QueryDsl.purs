@@ -31,7 +31,9 @@ module QueryDsl (
   getTableColumns',
   makeTable,
   from,
-  join,
+  innerJoin,
+  leftJoin,
+  crossJoin,
   select,
   where_,
   limit,
@@ -198,8 +200,13 @@ derive newtype instance bindSelectTableBuilder :: Bind SelectTableBuilder
 type SelectTable = {
   table :: TableName,
   alias :: TableName,
-  expr :: Maybe (Expression Boolean)
+  join :: Join
 }
+
+data Join = Initial
+          | InnerJoin (Expression Boolean)
+          | LeftOuterJoin (Expression Boolean)
+          | CrossJoin
 
 -- | The select columns and the where-clause/order-by/limit/etc part of a select query
 data SelectEndpoint (results :: #Type) = SelectEndpoint {
@@ -328,18 +335,26 @@ desc e = Desc $ untypeExpression $ toExpression e
 
 -- | Starts a SelectTableBuilder by specifying the initial table.
 from :: forall cols. Table cols -> SelectTableBuilder { | cols }
-from table = SelectTableBuilder $ addTable table Nothing
+from table = addTable table (const Initial)
 
--- | Extends a SelectTableBuilder by specifying a join table.
-join :: forall cols. Table cols -> ({ | cols } -> Expression Boolean) -> SelectTableBuilder { | cols }
-join table expr = SelectTableBuilder $ addTable table $ Just expr
+-- | Extends a SelectTableBuilder by specifying an (inner) join table.
+innerJoin :: forall cols. Table cols -> ({ | cols } -> Expression Boolean) -> SelectTableBuilder { | cols }
+innerJoin table expr = addTable table (expr >>> InnerJoin)
 
-addTable :: forall cols. Table cols -> Maybe ({ | cols } -> Expression Boolean) -> State (List SelectTable) { | cols }
-addTable (Table table cols) expr = do
+-- | Extends a SelectTableBuilder by specifying a (left outer) join table.
+leftJoin :: forall cols. Table cols -> ({ | cols } -> Expression Boolean) -> SelectTableBuilder { | cols }
+leftJoin table expr = addTable table (expr >>> LeftOuterJoin)
+
+-- | Extends a SelectTableBuilder by specifying a (cross) join table.
+crossJoin :: forall cols. Table cols -> SelectTableBuilder { | cols }
+crossJoin table = addTable table (const CrossJoin)
+
+addTable :: forall cols. Table cols -> ({ | cols } -> Join) -> SelectTableBuilder { | cols }
+addTable (Table table cols) getJoin = SelectTableBuilder do
   tables <- get
   let alias = makeAlias (List.length tables)
       cols' = cols alias
-  put ({ table, alias, expr: (cols' # _) <$> expr } : tables)
+  put $ { table, alias, join: getJoin cols' } : tables
   pure cols'
 
 class SelectExpressions (exprs :: #Type) (result :: #Type) | exprs -> result where
@@ -583,10 +598,10 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
         toWriter' endpoint <$> checkTables (List.reverse tables)
 
       checkTables :: List SelectTable -> Either ErrorMessage (List SelectTable)
-      checkTables ({ expr: Just _ } : _) =
-        Left  "A join condition cannot be supplied for the first table in the from clause"
-      checkTables ts =
-        Right ts
+      checkTables ts = case ts of
+        Nil -> Right ts
+        { join: Initial } : _ -> Right ts
+        { join: _ } : _ -> Left  "A join condition cannot be supplied for the first table in the from clause"
 
       toWriter' :: SelectEndpoint results -> List SelectTable -> SqlWriter
       toWriter' (SelectEndpoint endpoint) tables = do
@@ -617,11 +632,16 @@ instance querySelectQuery :: Query (SelectTableBuilder (SelectEndpoint results))
               jc <- joinSpace <$> traverse joinClause joinedTables
               pure $ " from " <> aliasSql rootTable.table rootTable.alias <> jc
 
-          joinClause {table, alias, expr: Just expr'} = do
+          joinClause {table, alias, join: Initial} =
+            pure $ " cross join " <> aliasSql table alias
+          joinClause {table, alias, join: CrossJoin} =
+            pure $ " cross join " <> aliasSql table alias
+          joinClause {table, alias, join: InnerJoin expr'} = do
             e <- expressionSql' expr'
             pure $ " join " <> aliasSql table alias <> " on " <> e
-          joinClause {table, alias, expr: Nothing} =
-            pure $ " cross join " <> aliasSql table alias
+          joinClause {table, alias, join: LeftOuterJoin expr'} = do
+            e <- expressionSql' expr'
+            pure $ " left join " <> aliasSql table alias <> " on " <> e
 
           groupByClause = case endpoint.groupBy of
             [] -> pure ""
