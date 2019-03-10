@@ -11,7 +11,9 @@
   },
   "scripts": {
     "clean": "rm -rf .pulp-cache bower_components node_modules output",
-    "install": "bower install && pulp build",
+    "install": "bower install",
+    "build": "pulp build",
+    "build:ide": "pulp build -- --json-errors",
     "test": "pulp test"
   }
 }
