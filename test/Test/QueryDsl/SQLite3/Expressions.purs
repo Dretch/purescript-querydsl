@@ -3,7 +3,7 @@ module Test.QueryDsl.SQLite3.Expressions (test) where
 import Prelude
 
 import QueryDsl (class SqlType, Constant, ParameterizedSql(..), expressionSql, toConstant)
-import QueryDsl.SQLite3.Expressions (random, match)
+import QueryDsl.SQLite3.Expressions (random, rank, match)
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.Spec (Spec, describe, it)
 
@@ -20,3 +20,6 @@ test = do
     it "match" do
       expressionSql ("abc" `match` "a") `shouldBeSql` ParameterizedSql "(? match ?)"
         [ c "abc", c "a" ]
+
+    it "rank" do
+      expressionSql rank `shouldBeSql` ParameterizedSql "rank" []
