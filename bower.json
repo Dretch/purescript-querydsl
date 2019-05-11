@@ -25,7 +25,7 @@
     "purescript-nullable": "^4.1.0"
   },
   "devDependencies": {
-    "purescript-spec": "https://github.com/owickstrom/purescript-spec.git#master",
+    "purescript-spec": "^4.0.0",
     "purescript-psci-support": "^4.0.0"
   },
   "repository": {
