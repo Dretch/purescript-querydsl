@@ -2,6 +2,7 @@
 -- |
 -- | DateTime values are represented in the database as text columns in ISO8601 format (YYYY-MM-DDTHH:mm:ss.SSSZ)
 module QueryDsl.SQLite3 (
+  dateTimeFormatter,
   runQuery,
   runSelectManyQuery,
   runSelectOneQuery,
