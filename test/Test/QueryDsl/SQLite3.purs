@@ -4,14 +4,14 @@ import Prelude
 
 import Data.DateTime (DateTime)
 import Data.DateTime.Instant (instant, toDateTime)
-import Data.Maybe (fromJust)
+import Data.Maybe (Maybe(..), fromJust)
 import Data.Time.Duration (Milliseconds(..))
 import Effect.Aff (bracket)
 import Node.Buffer (Octet)
 import Partial.Unsafe (unsafePartial)
-import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertInto, makeTable, select, update)
+import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertInto, makeTable, select, update, where_)
 import QueryDsl.Expressions ((:+), (:==), sum)
-import QueryDsl.SQLite3 (runQuery, runSelectOneQuery)
+import QueryDsl.SQLite3 (runQuery, runSelectOneQuery, runSelectMaybeQuery)
 import SQLite3 as SQLite3
 import Test.QueryDsl.SQLite3.Expressions as Expressions
 import Test.Spec (Spec, describe, it)
@@ -37,6 +37,11 @@ selectCount :: SelectQuery (n :: Int)
 selectCount = do
   t <- from testTable
   pure $ select {n: sum t.count}
+
+selectNamedCount :: String -> SelectQuery (n :: Int)
+selectNamedCount name = do
+  t <- from testTable
+  pure $ select {n: t.count} `where_` (t.name :== name)
 
 test :: Spec Unit
 test = do
@@ -67,6 +72,12 @@ test = do
 
         count'' <- runSelectOneQuery db selectCount
         count''.n `shouldEqual` 48
+
+        jimCount <- runSelectMaybeQuery db $ selectNamedCount "jim"
+        jimCount `shouldEqual` Just {n: 6}
+
+        joeCount <- runSelectMaybeQuery db $ selectNamedCount "joe"
+        joeCount `shouldEqual` Nothing
 
     describe "Datatypes" do
 

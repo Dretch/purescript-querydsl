@@ -4,7 +4,8 @@
 module QueryDsl.SQLite3 (
   runQuery,
   runSelectManyQuery,
-  runSelectOneQuery
+  runSelectOneQuery,
+  runSelectMaybeQuery
 ) where
 
 import Prelude
@@ -101,3 +102,13 @@ runSelectOneQuery conn q = do
   case many of
     [result] -> pure result
     rs -> throwError $ error $ "Expected one result, but got " <> show (Array.length rs)
+
+-- | Run a `SelectQuery` and either return `Nothing`, if there are no results,
+-- | `Just result` if there is a single result, or otherwise throw an error.
+runSelectMaybeQuery :: forall cols. ConstantsToRecord cols => DBConnection -> SelectQuery cols -> Aff (Maybe { | cols })
+runSelectMaybeQuery conn q = do
+  many <- runSelectManyQuery conn q
+  case many of
+    [] -> pure Nothing
+    [result] -> pure $ Just result
+    rs -> throwError $ error $ "Expected one or zero results, but got " <> show (Array.length rs)
