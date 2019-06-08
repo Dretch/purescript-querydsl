@@ -98,7 +98,8 @@ import Record as Record
 import Record.Builder (Builder)
 import Record.Builder as RB
 import Type.Data.Boolean (kind Boolean, False, True)
-import Type.Row (class RowToList, Cons, Nil, RLProxy(..), RProxy(..), kind RowList)
+import Type.Row (RProxy(..))
+import Type.RowList (class RowToList, Cons, Nil, RLProxy(..), kind RowList)
 
 -- | Values that can be stored in database columns
 data Constant = StringConstant String

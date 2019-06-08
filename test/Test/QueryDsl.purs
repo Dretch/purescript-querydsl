@@ -147,20 +147,20 @@ sqlType = do
         toConstant "abc" `shouldEqual` StringConstant "abc"
       it "fromConstant" do
         fromConstant dfcc (StringConstant "abc") `shouldEqual` Just "abc"
-        fromConstant dfcc (IntConstant 123) `shouldEqual` Nothing :: Maybe String
-        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe String
-        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe String
-        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe String
+        fromConstant dfcc (IntConstant 123) `shouldEqual` (Nothing :: Maybe String)
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` (Nothing :: Maybe String)
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` (Nothing :: Maybe String)
+        fromConstant dfcc NullConstant `shouldEqual` (Nothing :: Maybe String)
 
     describe "Int" do
       it "toConstant" do
         toConstant 123 `shouldEqual` IntConstant 123
       it "fromConstant" do
         fromConstant dfcc (IntConstant 123) `shouldEqual` Just 123
-        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
-        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Int
-        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe Int
-        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe Int
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` (Nothing :: Maybe Int)
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` (Nothing :: Maybe Int)
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` (Nothing :: Maybe Int)
+        fromConstant dfcc NullConstant `shouldEqual` (Nothing :: Maybe Int)
 
     describe "Number" do
       it "toConstant" do
@@ -168,22 +168,22 @@ sqlType = do
       it "fromConstant" do
         fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Just 123.0
         fromConstant dfcc (IntConstant 123) `shouldEqual` Just 123.0
-        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Number
-        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe Number
-        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe Number
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` (Nothing :: Maybe Number)
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` (Nothing :: Maybe Number)
+        fromConstant dfcc NullConstant `shouldEqual` (Nothing :: Maybe Number)
 
     describe "Boolean" do
       it "toConstant" do
         toConstant false `shouldEqual` IntConstant 0
         toConstant true `shouldEqual` IntConstant 1
       it "fromConstant" do
-        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe Boolean
-        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` (Nothing :: Maybe Boolean)
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` (Nothing :: Maybe Boolean)
         fromConstant dfcc (IntConstant 0) `shouldEqual` Just false
         fromConstant dfcc (IntConstant 1) `shouldEqual` Just true
         fromConstant dfcc (IntConstant 42) `shouldEqual` Just true
-        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Nothing :: Maybe Boolean
-        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe Boolean
+        fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` (Nothing :: Maybe Boolean)
+        fromConstant dfcc NullConstant `shouldEqual` (Nothing :: Maybe Boolean)
 
     describe "Maybe" do
       it "toConstant" do
@@ -192,22 +192,22 @@ sqlType = do
       it "fromConstant" do
         fromConstant dfcc NullConstant `shouldEqual` Just (Nothing :: Maybe Int)
         fromConstant dfcc (IntConstant 123) `shouldEqual` Just (Just 123)
-        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe Int
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` (Nothing :: Maybe Int)
 
     describe "DateTime" do
       it "toConstant" do
         toConstant testDate `shouldEqual` DateTimeConstant testDate
       it "fromConstant - default config" do
         fromConstant dfcc (DateTimeConstant testDate) `shouldEqual` Just testDate
-        fromConstant dfcc (StringConstant testDateString) `shouldEqual` Nothing :: Maybe DateTime
-        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` Nothing :: Maybe DateTime
-        fromConstant dfcc (IntConstant 123) `shouldEqual` Nothing :: Maybe DateTime
-        fromConstant dfcc NullConstant `shouldEqual` Nothing :: Maybe DateTime
+        fromConstant dfcc (StringConstant testDateString) `shouldEqual` (Nothing :: Maybe DateTime)
+        fromConstant dfcc (NumberConstant 123.0) `shouldEqual` (Nothing :: Maybe DateTime)
+        fromConstant dfcc (IntConstant 123) `shouldEqual` (Nothing :: Maybe DateTime)
+        fromConstant dfcc NullConstant `shouldEqual` (Nothing :: Maybe DateTime)
 
       it "fromConstant - with custom unformatDateTime config" do
         let config = { unformatDateTime: \s -> if s == "a" then Just testDate else Nothing }
         fromConstant config (StringConstant "a") `shouldEqual` Just testDate
-        fromConstant config (StringConstant "b") `shouldEqual` Nothing :: Maybe DateTime
+        fromConstant config (StringConstant "b") `shouldEqual` (Nothing :: Maybe DateTime)
 
     describe "OctetArray" do
       let octets = [1, 2, 3]
@@ -215,7 +215,7 @@ sqlType = do
         toConstant octets `shouldEqual` OctetArrayConstant octets
       it "fromConstant" do
         fromConstant dfcc (OctetArrayConstant octets) `shouldEqual` Just octets
-        fromConstant dfcc (StringConstant "abc") `shouldEqual` Nothing :: Maybe (Array Octet)
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` (Nothing :: Maybe (Array Octet))
 
 sqlGeneration :: Spec Unit
 sqlGeneration = do
