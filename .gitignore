@@ -4,4 +4,5 @@ output
 .psc-ide-port
 dump/*
 .psci_modules
+.spago
 generated-docs
