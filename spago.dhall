@@ -19,6 +19,8 @@
     , "spec"
     , "psci-support"
     ]
+, sources =
+    [ "src/**/*.purs", "test/**/*.purs" ]
 , packages =
     ./packages.dhall
 , license =
