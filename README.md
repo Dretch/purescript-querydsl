@@ -103,7 +103,7 @@ runQuery db $ deleteFrom customer (c.firstName :== "Paulo" :&& c.lastName :== "C
 
 ## Installation
 - With Bower: `bower install purescript-querydsl --save`.
-- With Psc Package: Querydsl is not in a public package set, so you will have to add it to your own (e.g. using Spago). Look at `bower.json` to get the dependencies.
+- With Spago: Querydsl is not in a public package set, so you will have to add it to your `packages.dhall`. Refer to this project's `spago.dhall` to get the dependencies.
 - You will also need `yarn add sqlite3` to get the Node SQLite dependency.
 
 [Data.Type.Boolean.False]: https://pursuit.purescript.org/packages/purescript-typelevel-prelude/docs/Type.Data.Boolean#t:False
