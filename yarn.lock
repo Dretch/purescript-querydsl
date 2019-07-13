@@ -890,6 +890,13 @@ find-pkg-dir@^1.0.1:
   dependencies:
     inspect-with-kind "^1.0.4"
 
+follow-redirects@^1.7.0:
+  version "1.7.0"
+  resolved "https://registry.yarnpkg.com/follow-redirects/-/follow-redirects-1.7.0.tgz#489ebc198dc0e7f64167bd23b03c4c19b5784c76"
+  integrity sha512-m/pZQy4Gj287eNy94nivy5wchN3Kp+Q5WgUPNy5lJSZ3sgkVKSYV/ZChMAQVIgx1SqfZ2zBZtPA2YlXIWxxJOQ==
+  dependencies:
+    debug "^3.2.6"
+
 forever-agent@~0.6.1:
   version "0.6.1"
   resolved "https://registry.yarnpkg.com/forever-agent/-/forever-agent-0.6.1.tgz#fbc71f0c41adeb37f96c577ad1ed42d8fdacca91"
@@ -1312,9 +1319,9 @@ lodash.memoize@~3.0.3:
   integrity sha1-LcvSwofLwKVcxCMovQxzYVDVPj8=
 
 lodash@~4.17.10:
-  version "4.17.11"
-  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.11.tgz#b39ea6229ef607ecd89e2c8df12536891cac9b8d"
-  integrity sha512-cQKh8igo5QUhZ7lg38DYWAxMvjSAKG0A8wGSVimP07SIUEK2UO+arSRKbRZWtelMtN5V0Hkwh5ryOto/SshYIg==
+  version "4.17.14"
+  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.14.tgz#9ce487ae66c96254fe20b599f21b6816028078ba"
+  integrity sha512-mmKYbW3GLuJeX+iGP+Y7Gp1AiGHGbXHCOh/jZmrawMmsE7MS4znI3RL2FsjbqOyMayHInjOeykW7PEajUk1/xw==
 
 log-symbols@^3.0.0:
   version "3.0.0"
@@ -2128,6 +2135,14 @@ sourcemap-codec@^1.3.0:
   version "1.4.4"
   resolved "https://registry.yarnpkg.com/sourcemap-codec/-/sourcemap-codec-1.4.4.tgz#c63ea927c029dd6bd9a2b7fa03b3fec02ad56e9f"
   integrity sha512-CYAPYdBu34781kLHkaW3m6b/uUSyMOC2R61gcYMWooeuaGtjof86ZA/8T+qVPPt7np1085CR9hmMGrySwEc8Xg==
+
+spago@^0.8.0:
+  version "0.8.5"
+  resolved "https://registry.yarnpkg.com/spago/-/spago-0.8.5.tgz#57175fb47d9275292159ce0bb288db42a945f7b3"
+  integrity sha512-/pTULM/rYRLeyNotJ7eLfoz0coHGTLv9feWxjDYiSWiJC2+5GzeMVj0UEcZRMij8eX9GNTqotSwfXr/kvYGGhg==
+  dependencies:
+    follow-redirects "^1.7.0"
+    tar "^4.4.8"
 
 spawn-stack@^0.7.0:
   version "0.7.0"
