@@ -92,7 +92,7 @@ import Data.String.CodeUnits (charAt, singleton)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst, snd, uncurry)
-import Node.Buffer (Octet)
+import Node.Buffer.Immutable (ImmutableBuffer)
 import Prim.Row (class Cons, class Lacks)
 import Record as Record
 import Record.Builder (Builder)
@@ -106,7 +106,7 @@ data Constant = StringConstant String
               | IntConstant Int
               | NumberConstant Number
               | DateTimeConstant DateTime
-              | OctetArrayConstant (Array Octet)
+              | BufferConstant ImmutableBuffer
               | NullConstant
 
 derive instance eqConstant :: Eq Constant
@@ -116,7 +116,7 @@ instance showConstant :: Show Constant where
   show (IntConstant i) = show i
   show (NumberConstant f) = show f
   show (DateTimeConstant dt) = show dt
-  show (OctetArrayConstant oa) = show oa
+  show (BufferConstant b) = show b
   show NullConstant = "null"
 
 -- | Passed to `fromConstant` to configure how values are converted from constants.
@@ -166,9 +166,9 @@ instance sqlTypeMaybe :: SqlType a => SqlType (Maybe a) where
   fromConstant _ NullConstant = Just Nothing
   fromConstant config c = Just <$> fromConstant config c
 
-instance sqlTypeOctetArray :: SqlType (Array Int) where
-  toConstant = OctetArrayConstant
-  fromConstant _ (OctetArrayConstant oa) = Just oa
+instance sqlTypeBuffer :: SqlType ImmutableBuffer where
+  toConstant = BufferConstant
+  fromConstant _ (BufferConstant b) = Just b
   fromConstant _ _ = Nothing
 
 newtype TableName = TableName String

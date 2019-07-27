@@ -7,7 +7,8 @@ import Data.DateTime.Instant (instant, toDateTime)
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Time.Duration (Milliseconds(..))
 import Effect.Aff (bracket)
-import Node.Buffer (Octet)
+import Node.Buffer.Immutable (ImmutableBuffer)
+import Node.Buffer.Immutable as ImmutableBuffer
 import Partial.Unsafe (unsafePartial)
 import QueryDsl (Column, SelectQuery, Table, columns, deleteFrom, from, insertInto, makeTable, select, update, where_)
 import QueryDsl.Expressions ((:+), (:==), sum)
@@ -88,11 +89,11 @@ test = do
           result <- runSelectOneQuery db query
           result.dt `shouldEqual` testDateTime
 
-      it "OctetArray" do
+      it "ImmutableBuffer" do
         withMemoryDb \db -> do
-          let octets = [1, 2, 3]
-              query = pure (select { a: octets }) :: SelectQuery (a :: Array Octet)
+          let buf = ImmutableBuffer.fromArray [1, 2, 3]
+              query = pure (select { a: buf }) :: SelectQuery (a :: ImmutableBuffer)
           result <- runSelectOneQuery db query
-          result.a `shouldEqual` octets
+          result.a `shouldEqual` buf
 
   Expressions.test

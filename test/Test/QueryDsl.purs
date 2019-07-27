@@ -1,15 +1,17 @@
 module Test.QueryDsl (test) where
 
+import QueryDsl
+
 import Data.DateTime (DateTime)
 import Data.DateTime.Instant (instant, toDateTime)
 import Data.Either (Either(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Time.Duration (Milliseconds(..))
-import Node.Buffer (Octet)
+import Node.Buffer.Immutable as ImmutableBuffer
+import Node.Buffer.Immutable (ImmutableBuffer)
 import Partial.Unsafe (unsafePartial)
 import Prelude (Unit, bind, discard, pure, ($), negate, (==))
-import QueryDsl
 import QueryDsl.Expressions (countAll, (:*), (:+), (:==), (:>=))
 import Test.QueryDsl.Assertions (shouldBeSql)
 import Test.QueryDsl.Expressions as Expressions
@@ -209,13 +211,13 @@ sqlType = do
         fromConstant config (StringConstant "a") `shouldEqual` Just testDate
         fromConstant config (StringConstant "b") `shouldEqual` (Nothing :: Maybe DateTime)
 
-    describe "OctetArray" do
-      let octets = [1, 2, 3]
+    describe "ImmutableBuffer" do
+      let buffer = ImmutableBuffer.fromArray [1, 2, 3]
       it "toConstant" do
-        toConstant octets `shouldEqual` OctetArrayConstant octets
+        toConstant buffer `shouldEqual` BufferConstant buffer
       it "fromConstant" do
-        fromConstant dfcc (OctetArrayConstant octets) `shouldEqual` Just octets
-        fromConstant dfcc (StringConstant "abc") `shouldEqual` (Nothing :: Maybe (Array Octet))
+        fromConstant dfcc (BufferConstant buffer) `shouldEqual` Just buffer
+        fromConstant dfcc (StringConstant "abc") `shouldEqual` (Nothing :: Maybe ImmutableBuffer)
 
 sqlGeneration :: Spec Unit
 sqlGeneration = do

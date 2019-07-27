@@ -15,17 +15,14 @@ import Data.Array as Array
 import Data.Either (Either(..), hush)
 import Data.Formatter.DateTime (Formatter, format, parseFormatString, unformat)
 import Data.Function.Uncurried as U
-import Data.Nullable as Nullable
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromJust)
+import Data.Nullable as Nullable
 import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
-import Effect.Class (liftEffect)
-import Effect.Uncurried as EU
 import Foreign (Foreign, unsafeToForeign)
-import Node.Buffer as Buffer
-import Node.Buffer (Buffer)
+import Node.Buffer.Immutable (ImmutableBuffer)
 import Partial.Unsafe (unsafePartial)
 import QueryDsl (class ConstantsToRecord, class Query, Constant(..), ParameterizedSql(..), SelectQuery, constantsToRecord, toSql)
 import SQLite3 (DBConnection)
@@ -45,8 +42,8 @@ constantToForeign (NumberConstant n) =
   pure $ unsafeToForeign n
 constantToForeign (DateTimeConstant dt) =
   pure $ unsafeToForeign $ format dateTimeFormatter dt
-constantToForeign (OctetArrayConstant oa) =
-  liftEffect $ unsafeToForeign <$> Buffer.fromArray oa
+constantToForeign (BufferConstant b) =
+  pure $ unsafeToForeign b
 constantToForeign NullConstant =
   pure $ unsafeToForeign $ Nullable.toNullable Nothing
 
@@ -55,7 +52,7 @@ foreign import decodeQueryResponse
      (U.Fn3 String String result result)
      (U.Fn3 String Int result result)
      (U.Fn3 String Number result result)
-     (EU.EffectFn3 String Buffer result result)
+     (U.Fn3 String ImmutableBuffer result result)
      (U.Fn2 String result result)
      result
      Foreign
@@ -67,7 +64,7 @@ decodeQueryResponseHelper =
     (U.mkFn3 \k v -> Map.insert k (StringConstant v))
     (U.mkFn3 \k v -> Map.insert k (IntConstant v))
     (U.mkFn3 \k v -> Map.insert k (NumberConstant v))
-    (EU.mkEffectFn3 \k v m -> (\a -> Map.insert k (OctetArrayConstant a) m) <$> Buffer.toArray v)
+    (U.mkFn3 \k v -> Map.insert k (BufferConstant v))
     (U.mkFn2 \k -> Map.insert k NullConstant)
     Map.empty
 
