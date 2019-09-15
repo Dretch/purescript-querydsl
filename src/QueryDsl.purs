@@ -441,7 +441,7 @@ offset (SelectEndpoint se) n =
   SelectEndpoint $ se { offset = Just n }
 
 -- | Instances of this type class are automatically derived by the compiler for
--- | row types pairs where each field in `exprs` matches a column in `cols`
+-- | pairs of row types where each field in `exprs` matches a column in `cols`
 class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
   getInsertExpressions :: { | exprs } -> List (Tuple ColumnName Constant)
 
@@ -585,6 +585,7 @@ nullaryFunction :: forall result. String -> Expression result
 nullaryFunction op = Expression $ NullaryFunctionExpr op
 
 class Query t where
+  -- | Gets some SQL to be run against an actual database.
   toSql :: t -> Either ErrorMessage ParameterizedSql
 
 type SqlWriter = Writer (Array Constant) String
@@ -760,6 +761,9 @@ whereClauseSql (Expression AlwaysTrueExpr) = pure ""
 whereClauseSql expr = (" where " <> _) <$> expressionSql' expr
 
 class ConstantsToRecord (r :: #Type) where
+  -- | Create a Record value of the required type from a dynamically typed
+  -- | Map of fields (e.g. returned from running a database query), if possible,
+  -- | otherwise provide an error message.
   constantsToRecord :: RProxy r -> FromConstantConfig -> Map String Constant -> Either ErrorMessage { | r }
 
 instance constantsToRecordImpl
