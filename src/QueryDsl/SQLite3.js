@@ -1,17 +1,17 @@
 
-exports.decodeQueryResponse = function (addString, addInt, addNumber, addBuffer, addNull, empty, results) {
-  return results.map(function(result) {
+exports.decodeQueryResponse = (addString, addInt, addNumber, addBuffer, addNull, empty, results) => {
+  return results.map(result => {
 
-    var decoded = empty;
-    Object.keys(result).forEach(function(key) {
+    let decoded = empty;
+    Object.keys(result).forEach(key => {
 
-      var value = result[key];
+      const value = result[key];
 
       if (typeof value === 'string') {
         decoded = addString(key, value, decoded);
       }
       else if (typeof value === 'number') {
-         var add = Number.isInteger(value) ? addInt : addNumber;
+         const add = Number.isInteger(value) ? addInt : addNumber;
          decoded = add(key, value, decoded);
       }
       else if (value instanceof Buffer) {
@@ -21,7 +21,7 @@ exports.decodeQueryResponse = function (addString, addInt, addNumber, addBuffer,
         decoded = addNull(key, decoded);
       }
       else {
-        throw new Error("Unable to decode value (typeof value === '" + typeof value + "'): " + value);
+        throw new Error(`Unable to decode value (typeof value === '${typeof value}'): ${value}`);
       }
     });
     return decoded;
