@@ -14,6 +14,7 @@ A SQL query builder for Purescript, very loosely based on Java's [Querydsl](http
 ## Status
 - Experimental, pre-alpha, full of bugs, lacking in features, unstable, don't rely on this, etc.
 - Currently only SQLite is supported.
+- Consider using https://github.com/Kamirus/purescript-selda instead - as it is probably more mature and better maintained.
 
 ## Quick Example
 
