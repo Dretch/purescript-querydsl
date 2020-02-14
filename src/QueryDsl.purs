@@ -97,9 +97,9 @@ import Prim.Row (class Cons, class Lacks)
 import Record as Record
 import Record.Builder (Builder)
 import Record.Builder as RB
-import Type.Data.Boolean (kind Boolean, False, True)
+import Type.Data.Boolean (False, True)
 import Type.Row (RProxy(..))
-import Type.RowList (class RowToList, Cons, Nil, RLProxy(..), kind RowList)
+import Type.RowList (class RowToList, Cons, Nil, RLProxy(..), RowList)
 
 -- | Values that can be stored in database columns
 data Constant = StringConstant String
@@ -180,7 +180,7 @@ newtype ColumnName = ColumnName String
 derive newtype instance eqColumnName :: Eq ColumnName
 
 -- | A table definition, with a row-type parameter that captures the types of the columns in the table.
-data Table (cols :: #Type) = Table TableName (TableName -> { | cols })
+data Table (cols :: Row Type) = Table TableName (TableName -> { | cols })
 
 data UnTypedColumn = UnTypedColumn TableName ColumnName
 
@@ -210,7 +210,7 @@ data Join = Initial
           | CrossJoin
 
 -- | The select columns and the where-clause/order-by/limit/etc part of a select query
-data SelectEndpoint (results :: #Type) = SelectEndpoint {
+data SelectEndpoint (results :: Row Type) = SelectEndpoint {
   columns :: List (Tuple ColumnName UntypedExpression),
   where_ :: Expression Boolean,
   orderBy :: Array OrderingExpression,
@@ -281,7 +281,7 @@ alwaysTrue = Expression AlwaysTrueExpr
 -- | rows where each field in the row matches `name: Column typ required`, representing
 -- | a database table column called `name`, having a database type compatible with
 -- | the Purescript type `typ`, and being required or optional on insert according to `required`
-class TableColumns (cols :: #Type) where
+class TableColumns (cols :: Row Type) where
   getTableColumns :: RProxy cols -> TableName -> { | cols }
 
 instance tableColumnsImpl
@@ -292,7 +292,7 @@ instance tableColumnsImpl
       let builder = getTableColumns' (RLProxy :: RLProxy colsRL) rProxy tName
       in RB.build builder {}
 
-class ApplyTableColumns (colsRL :: RowList) (colsR :: #Type) | colsRL -> colsR where
+class ApplyTableColumns (colsRL :: RowList Type) (colsR :: Row Type) | colsRL -> colsR where
   getTableColumns' :: RLProxy colsRL -> RProxy colsR -> TableName -> Builder {} { | colsR }
 
 instance applyTableColumnsNil :: ApplyTableColumns Nil () where
@@ -358,7 +358,7 @@ addTable (Table table cols) getJoin = SelectTableBuilder do
   put $ { table, alias, join: getJoin cols' } : tables
   pure cols'
 
-class SelectExpressions (exprs :: #Type) (result :: #Type) | exprs -> result where
+class SelectExpressions (exprs :: Row Type) (result :: Row Type) | exprs -> result where
   getSelectExpressions :: { | exprs } -> List (Tuple ColumnName UntypedExpression)
 
 instance selectExpressionsImpl
@@ -369,7 +369,7 @@ instance selectExpressionsImpl
     getSelectExpressions exprs = getSelectExpressions'
       (RLProxy :: RLProxy exprsRL) exprs (RLProxy :: RLProxy resultsRL)
 
-class ApplySelectExpressions (exprsRL :: RowList) (exprsR :: #Type) (resultsRL :: RowList) where
+class ApplySelectExpressions (exprsRL :: RowList Type) (exprsR :: Row Type) (resultsRL :: RowList Type) where
   getSelectExpressions' :: RLProxy exprsRL -> { | exprsR } -> RLProxy resultsRL -> List (Tuple ColumnName UntypedExpression)
 
 instance applySelectExpressionsNil
@@ -442,7 +442,7 @@ offset (SelectEndpoint se) n =
 
 -- | Instances of this type class are automatically derived by the compiler for
 -- | pairs of row types where each field in `exprs` matches a column in `cols`
-class InsertExpressions (cols :: #Type) (exprs :: #Type) | cols -> exprs, exprs -> cols where
+class InsertExpressions (cols :: Row Type) (exprs :: Row Type) | cols -> exprs, exprs -> cols where
   getInsertExpressions :: { | exprs } -> List (Tuple ColumnName Constant)
 
 instance insertExpressionsImpl
@@ -456,7 +456,7 @@ instance insertExpressionsImpl
      (RProxy :: RProxy exprsR)
      rec
 
-class ApplyInsertExpressions (colsRL :: RowList) (exprsRL :: RowList) (exprsR :: #Type)
+class ApplyInsertExpressions (colsRL :: RowList Type) (exprsRL :: RowList Type) (exprsR :: Row Type)
   where
     getInsertExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> RProxy exprsR -> { | exprsR } -> List (Tuple ColumnName Constant)
 
@@ -520,7 +520,7 @@ insertInto (Table tName _) exprs =
 
 -- | An instance of this type class is automatically derived by the compiler when
 -- | each item in `exprs` matches a column of the same name and type in `cols`.
-class UpdateExpressions (cols :: #Type) (exprs :: #Type) where
+class UpdateExpressions (cols :: Row Type) (exprs :: Row Type) where
   getUpdateExpressions :: { | cols } -> { | exprs } -> List (Tuple ColumnName UntypedExpression)
 
 instance updateExpressionsImpl
@@ -531,7 +531,7 @@ instance updateExpressionsImpl
     getUpdateExpressions cols exprs = getUpdateExpressions'
       (RLProxy :: RLProxy colsRL) (RLProxy :: RLProxy exprsRL) exprs
 
-class ApplyUpdateExpressions (colsRL :: RowList) (exprsRL :: RowList) (exprsR :: #Type) where
+class ApplyUpdateExpressions (colsRL :: RowList Type) (exprsRL :: RowList Type) (exprsR :: Row Type) where
   getUpdateExpressions' :: RLProxy colsRL -> RLProxy exprsRL -> { | exprsR } -> List (Tuple ColumnName UntypedExpression)
 
 instance applyUpdateExpressionsNil
@@ -760,7 +760,7 @@ whereClauseSql :: Expression Boolean -> SqlWriter
 whereClauseSql (Expression AlwaysTrueExpr) = pure ""
 whereClauseSql expr = (" where " <> _) <$> expressionSql' expr
 
-class ConstantsToRecord (r :: #Type) where
+class ConstantsToRecord (r :: Row Type) where
   -- | Create a Record value of the required type from a dynamically typed
   -- | Map of fields (e.g. returned from running a database query), if possible,
   -- | otherwise provide an error message.
@@ -773,7 +773,7 @@ instance constantsToRecordImpl
     builder <- constantsToRecord' (RLProxy :: RLProxy rl) config constants
     pure $ RB.build builder {}
 
-class ApplyConstantsToRecord (r :: #Type) (rl :: RowList) | rl -> r where
+class ApplyConstantsToRecord (r :: Row Type) (rl :: RowList Type) | rl -> r where
   constantsToRecord' :: RLProxy rl -> FromConstantConfig -> Map String Constant -> Either ErrorMessage (Builder {} { | r })
 
 instance applyConstantsToRecordNil :: ApplyConstantsToRecord () Nil where
